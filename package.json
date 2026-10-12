@@ -1,0 +1,20 @@
+{
+  "name": "boss-fighters-entre-amis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Version web non officielle de Boss Fighters QR pour jouer à distance entre amis",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/engine.test.js",
+    "smoke": "node test/server.smoke.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1",
+    "socket.io-client": "^4.8.1"
+  }
+}
