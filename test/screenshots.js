@@ -62,7 +62,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   await a.click('[data-action="start"]');
   await a.waitForSelector('.crests');
-  await a.click('[data-action="starter"][data-idx="0"]');
+  // Vote pour qui commence : capture pendant le vote, puis les autres votent.
+  await a.click('[data-action="vote"][data-idx="1"]'); await wait(400);
+  await a.setViewport({ width: 1366, height: 768 }); await wait(300);
+  await a.screenshot({ path: path.join(OUT, '3a-vote.png') });
+  await a.setViewport({ width: 1440, height: 1000 });
+  await a.click('[data-action="vote"][data-idx="0"]');
+  for (const p of [b, c]) await p.evaluate(() => document.querySelector('[data-action="vote"][data-idx="0"]')?.click());
   await wait(800);
   await a.screenshot({ path: path.join(OUT, '3-combat.png'), fullPage: true });
 
@@ -71,11 +77,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (uid) {
     await a.click(`.hand .card[data-uid="${uid}"]`);
     await wait(400);
-    const targeting = await a.$('.hero.targetable');
+    const targeting = await a.$('.hero-seat.targetable');
     if (targeting) { await targeting.click(); await wait(400); }
   }
   await wait(600);
   await a.screenshot({ path: path.join(OUT, '4-combat-en-cours.png'), fullPage: true });
+  // Écran de portable courant : tout doit tenir sans défilement.
+  await a.setViewport({ width: 1366, height: 768 });
+  await wait(500);
+  await a.screenshot({ path: path.join(OUT, '4b-combat-portable.png') });
+  const scrolls = await a.evaluate(() => document.documentElement.scrollHeight > window.innerHeight);
+  console.log(scrolls ? 'ATTENTION : la page de combat défile en 1366x768' : 'Combat sans défilement en 1366x768');
 
   await b.setViewport({ width: 420, height: 900 });
   await wait(500);

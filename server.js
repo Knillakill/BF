@@ -31,7 +31,7 @@ const catalog = {
   items: ITEMS,
   difficulties: DIFFICULTIES,
   bosses: Object.fromEntries(Object.values(BOSSES).map((b) => [b.id, {
-    id: b.id, name: b.name, art: b.art, legend: b.legend, lifePerHero: b.lifePerHero,
+    id: b.id, name: b.name, art: b.art, legend: b.legend, lifePerHero: b.lifePerHero, order: b.order,
     enrageRound: b.enrageRound, statuses: b.statuses, starterOnly: !!b.starterOnly,
   }])),
 };
@@ -51,6 +51,18 @@ function cleanName(name) {
   return String(name || '').trim().slice(0, 20) || 'Héros';
 }
 
+// Progression : nombre de boss vaincus dans l'ordre de la campagne (0 = rien, 1 = M. Pantin, 2 = le Prince…).
+// Les étoiles de butin commencent après le Prince : ★1 = Prince vaincu.
+const starsOf = (room) => Math.max(0, room.beaten - 1);
+
+// Après une victoire contre le boss suivant de la campagne, la progression avance.
+function progress(room) {
+  const g = room.game;
+  if (!g || g.result !== 'win' || g.progressed) return;
+  g.progressed = true;
+  if (BOSSES[room.boss].order === room.beaten) room.beaten++;
+}
+
 function broadcast(room) {
   for (const p of room.players) {
     if (!p.socketId) continue;
@@ -59,7 +71,9 @@ function broadcast(room) {
       hostId: room.hostId,
       boss: room.boss,
       difficulty: room.difficulty,
-      players: room.players.map(({ id, name, hero, cls, seat, socketId }) => ({ id, name, hero, cls, seat, online: !!socketId })),
+      beaten: room.beaten,
+      stars: starsOf(room),
+      players: room.players.map(({ id, name, hero, cls, seat, loot, removed, socketId }) => ({ id, name, hero, cls, seat, loot, removed, online: !!socketId })),
       game: room.game ? room.game.view(p.id) : null,
     });
   }
@@ -89,8 +103,8 @@ io.on('connection', (socket) => {
   socket.on('create', handle(({ token, name }) => {
     if (!token) throw new Error('Identifiant manquant');
     const code = newCode();
-    const r = { code, hostId: token, players: [], boss: 'prince', difficulty: 'advanced', game: null };
-    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: null, socketId: null });
+    const r = { code, hostId: token, players: [], boss: 'puppet', difficulty: 'advanced', beaten: 0, game: null }; // la campagne commence par le tutoriel
+    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: null, loot: [], removed: [], socketId: null });
     rooms.set(code, r);
     attach(r, token);
   }));
@@ -105,7 +119,7 @@ io.on('connection', (socket) => {
     }
     if (r.game) throw new Error('Un combat est déjà en cours dans ce salon.');
     if (r.players.length >= MAX_PLAYERS) throw new Error('Le salon est complet (4 joueurs).');
-    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: null, socketId: null });
+    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: null, loot: [], removed: [], socketId: null });
     attach(r, token);
   }));
 
@@ -125,11 +139,13 @@ io.on('connection', (socket) => {
     if (hero !== undefined) {
       if (hero && !HEROES[hero]) throw new Error('Héros inconnu');
       if (hero && room.players.some((p) => p !== me && p.hero === hero)) throw new Error('Ce héros est déjà pris.');
+      if (me.hero !== (hero || null)) me.removed = [];
       me.hero = hero || null;
     }
     if (cls !== undefined) {
       if (cls && !CLASSES[cls]) throw new Error('Classe inconnue');
       if (cls && room.players.some((p) => p !== me && p.cls === cls)) throw new Error('Cette classe est déjà prise.');
+      if (me.cls !== (cls || null)) me.removed = [];
       me.cls = cls || null;
     }
     broadcast(room);
@@ -143,11 +159,43 @@ io.on('connection', (socket) => {
     broadcast(room);
   }));
 
-  socket.on('settings', handle(({ boss, difficulty }) => {
+  socket.on('settings', handle(({ boss, difficulty, beaten }) => {
     if (!room || room.game) return;
     if (room.hostId !== me.id) throw new Error("Seul l'hôte peut changer le boss.");
     if (boss && BOSSES[boss]) room.boss = boss;
     if (difficulty && DIFFICULTIES[difficulty]) room.difficulty = difficulty;
+    if (Number.isInteger(beaten) && beaten >= 0 && beaten <= Object.keys(BOSSES).length) {
+      room.beaten = beaten;
+      // Le butin au-delà des étoiles débloquées n'est plus autorisé.
+      for (const p of room.players) {
+        p.loot = (p.loot || []).filter((id) => CARDS[id].loot <= starsOf(room));
+        p.removed = (p.removed || []).slice(0, p.loot.length);
+      }
+    }
+    broadcast(room);
+  }));
+
+  // Préparation du paquet : 1 butin par étoile débloquée, et autant de cartes d'action retirées (20 cartes minimum).
+  socket.on('loadout', handle(({ loot = [], removed = [] }) => {
+    if (!room || room.game) return;
+    const stars = starsOf(room);
+    const levels = new Set();
+    for (const id of loot) {
+      const c = CARDS[id];
+      if (!c || !c.loot || c.loot > stars) throw new Error('Butin non débloqué.');
+      if (levels.has(c.loot)) throw new Error('Un seul butin par niveau d’étoile.');
+      levels.add(c.loot);
+    }
+    if (!me.hero || !me.cls) throw new Error('Choisis d’abord ton héros et ta classe.');
+    const deck = [...HEROES[me.hero].cards, ...HEROES[me.hero].advanced, ...CLASSES[me.cls].cards, ...CLASSES[me.cls].advanced];
+    if (removed.length > loot.length) throw new Error('Tu peux retirer une carte par butin ajouté.');
+    for (const id of removed) {
+      const k = deck.indexOf(id);
+      if (k < 0) throw new Error('Carte absente de ton paquet.');
+      deck.splice(k, 1);
+    }
+    me.loot = [...loot];
+    me.removed = [...removed];
     broadcast(room);
   }));
 
@@ -159,7 +207,7 @@ io.on('connection', (socket) => {
     }
     // L'ordre du tour suit les places dans le sens horaire.
     const seated = [...room.players].sort((a, b) => a.seat - b.seat);
-    room.game = new Game(seated, room.boss, room.difficulty);
+    room.game = new Game(seated, room.boss, room.difficulty, { stars: starsOf(room) });
     broadcast(room);
   }));
 
@@ -168,14 +216,16 @@ io.on('connection', (socket) => {
     const g = room.game;
     switch (a.type) {
       case 'starter': g.chooseStarter(me.id, a.hero); break;
+      case 'vote': g.voteStarter(me.id, a.hero, room.players.filter((p) => p.socketId).map((p) => p.id)); break;
       case 'play': g.playCard(me.id, a.uid, a.targets); break;
       case 'item': g.useItem(me.id, a.item, a.target); break;
       case 'pass': g.pass(me.id); break;
-      case 'choose': g.choose(me.id, a.uid, a.targets); break;
+      case 'choose': g.choose(me.id, a.uid, a.targets, !!a.under); break;
       case 'discard': g.submitDiscard(me.id, a.uids); break;
       case 'giveup': g.giveUp(me.id); break;
       default: throw new Error('Action inconnue');
     }
+    progress(room);
     broadcast(room);
   }));
 

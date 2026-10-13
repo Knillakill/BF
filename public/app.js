@@ -26,7 +26,8 @@ const ui = { pending: null, discardSel: new Set(), lastPhaseKey: '', homeRendere
 
 // Illustrations générées avec Canva (public/img).
 const HERO_IMG = { troll: 'img/troll.jpg', halfling: 'img/halfling.jpg', dwarf: 'img/dwarf.jpg', elf: 'img/elf.jpg' };
-const BOSS_IMG = { toad: 'img/prince.jpg', puppet: 'img/puppet.jpg' };
+const BOSS_IMG = { toad: 'img/prince.jpg', puppet: 'img/puppet.jpg', huntress: 'img/huntress.jpg' };
+const CAMPAIGN_STEPS = ['Début de campagne', 'M. Pantin vaincu', 'Le Prince vaincu (★1)', 'La Chasseuse d’âmes vaincue (★2)'];
 const CLASS_ICON = { warrior: 'cls-warrior', mage: 'cls-mage', rogue: 'cls-rogue', druid: 'cls-druid' };
 const TYPE_ICON = { melee: 'melee', ranged: 'ranged', magic: 'magic', protect: 'protect', heal: 'heal', util: 'draw' };
 const AB_ICON = { attack: 'attack-boss', threshold: 'broken-heart', reaction: 'fangs', recurring: 'hourglass', shield: 'protect' };
@@ -74,7 +75,23 @@ socket.on('state', (s) => {
     if (!g || g.phase !== 'discard') ui.discardSel.clear();
   }
   render();
+  if (typeof handleFx === 'function') handleFx(g); // effets visuels et sonores (fx.js)
+  playStateSounds(g);
 });
+
+// Sons liés au déroulement : « c'est ton tour », victoire, défaite.
+const soundState = { myTurn: false, result: null };
+function playStateSounds(g) {
+  if (!g) { soundState.myTurn = false; soundState.result = null; return; }
+  const me = g.heroes.findIndex((h) => h.mine);
+  const myTurn = g.phase === 'action' && !g.awaitingStarter && g.current === me;
+  if (myTurn && !soundState.myTurn) setTimeout(() => Sfx.play('yourTurn'), 600);
+  if (g.result && !soundState.result) setTimeout(() => Sfx.play(g.result === 'win' ? 'win' : 'lose'), 900);
+  soundState.myTurn = myTurn;
+  soundState.result = g.result;
+}
+
+const muteButton = () => `<button class="btn small ghost mute" data-action="mute" title="${Sfx.muted ? 'Activer le son' : 'Couper le son'}">${Sfx.muted ? '🔇' : '🔊'}</button>`;
 
 const act = (a) => socket.emit('act', a);
 
@@ -126,10 +143,10 @@ function renderHome() {
 // en bas de droite à gauche, à gauche de bas en haut, en haut de gauche à droite, à droite de haut en bas.
 // L'ordre du tour suit ces numéros, comme les joueurs autour de la vraie tablette.
 const SEATS = [
-  { x: 77, y: 100, side: 'bottom' }, { x: 23, y: 100, side: 'bottom' },
-  { x: 0, y: 70, side: 'left' }, { x: 0, y: 30, side: 'left' },
-  { x: 23, y: 0, side: 'top' }, { x: 77, y: 0, side: 'top' },
-  { x: 100, y: 30, side: 'right' }, { x: 100, y: 70, side: 'right' },
+  { x: 70, y: 100, side: 'bottom' }, { x: 30, y: 100, side: 'bottom' },
+  { x: 0, y: 72, side: 'left' }, { x: 0, y: 38, side: 'left' },
+  { x: 30, y: 0, side: 'top' }, { x: 70, y: 0, side: 'top' },
+  { x: 100, y: 38, side: 'right' }, { x: 100, y: 72, side: 'right' },
 ];
 const seatStyle = (i) => `--x:${SEATS[i].x}%;--y:${SEATS[i].y}%`;
 
@@ -200,13 +217,34 @@ function renderLobby() {
   };
 
   const waiting = state.players.filter((p) => p.seat === null || p.seat === undefined);
+  // Butin : 1 carte par étoile débloquée ; chaque butin permet de retirer 1 carte d'action (20 cartes minimum).
+  const myLoot = me.loot || [];
+  const myRemoved = [...(me.removed || [])];
+  const canRemove = !starterOnly && myLoot.length > myRemoved.length;
+  const deckCard = (id) => {
+    const k = myRemoved.indexOf(id);
+    const removed = k >= 0;
+    if (removed) myRemoved.splice(k, 1);
+    const clickable = !starterOnly && (removed || canRemove);
+    return cardHtml(id, { cls: `${removed ? 'removed' : ''} ${clickable ? 'clickable' : ''}`, attrs: clickable ? `data-action="remove-card" data-id="${id}"` : '' });
+  };
+  const lootLevels = Array.from({ length: state.stars }, (_, k) => k + 1);
+  const lootBlock = !starterOnly && state.stars > 0 ? `
+         <h3>Butin <small>(1 carte par étoile ; chaque butin permet de retirer 1 carte d'action)</small></h3>
+         ${lootLevels.map((lvl) => `
+           <p class="loot-level">★${lvl}</p>
+           <div class="cards">${Object.values(catalog.cards).filter((c) => c.loot === lvl).map((c) =>
+             cardHtml(c.id, { cls: `clickable ${myLoot.includes(c.id) ? 'chosen' : ''}`, attrs: `data-action="loot" data-id="${c.id}"` })).join('')}</div>`).join('')}
+         ${canRemove ? '<p class="hint">Tu peux retirer une carte de ton paquet : clique dessus ci-dessus.</p>' : ''}` : '';
+  const deckSize = starterOnly ? 12 : 20 + myLoot.length - (me.removed || []).length;
   const deck = me.hero && me.cls
     ? `<section class="parchment deck">
-         <h2>Ton paquet</h2>
+         <h2>Ton paquet <small>(${deckSize} cartes)</small></h2>
          <h3>Cartes de départ <small>(12)</small></h3>
-         <div class="cards">${[...catalog.heroes[me.hero].cards, ...catalog.classes[me.cls].cards].map((id) => cardHtml(id)).join('')}</div>
+         <div class="cards">${[...catalog.heroes[me.hero].cards, ...catalog.classes[me.cls].cards].map(deckCard).join('')}</div>
          <h3>Cartes avancées <small>(8)${starterOnly ? ' — pas utilisées contre M. Pantin' : ''}</small></h3>
-         <div class="cards ${starterOnly ? 'dim' : ''}">${[...catalog.heroes[me.hero].advanced, ...catalog.classes[me.cls].advanced].map((id) => cardHtml(id)).join('')}</div>
+         <div class="cards ${starterOnly ? 'dim' : ''}">${[...catalog.heroes[me.hero].advanced, ...catalog.classes[me.cls].advanced].map(deckCard).join('')}</div>
+         ${lootBlock}
          <p class="legend-conf">📷 carte vue en photo · ≈ valeur probable · ? carte non retrouvée</p>
        </section>`
     : '';
@@ -215,7 +253,7 @@ function renderLobby() {
     <div class="lobby">
       <header class="topbar">
         ${logo()}
-        <div class="room">Salon <b class="code">${esc(state.code)}</b>
+        <div class="room">${muteButton()} Salon <b class="code">${esc(state.code)}</b>
           <button class="btn small" data-action="copy">Copier le lien</button>
           <button class="btn small ghost" data-action="leave">Quitter</button>
         </div>
@@ -229,13 +267,18 @@ function renderLobby() {
                 <p class="screen-sub">Cliquez sur une place au bord de l'écran, là où vous seriez assis autour de la tablette. L'ordre du tour suit le sens des aiguilles d'une montre.</p>
                 <div class="boss-pick">
                   ${Object.values(catalog.bosses).map((b) => `
-                    <button class="boss-card ${state.boss === b.id ? 'sel' : ''}" data-action="boss" data-id="${b.id}" ${isHost ? '' : 'disabled'}>
+                    <button class="boss-card ${state.boss === b.id ? 'sel' : ''} ${b.order > state.beaten ? 'locked' : ''}" data-action="boss" data-id="${b.id}" ${isHost ? '' : 'disabled'}
+                            title="${b.order > state.beaten ? 'Pas encore débloqué dans la campagne' : b.order < state.beaten ? 'Déjà vaincu' : 'Prochain boss de la campagne'}">
                       <span class="boss-thumb" style="background-image:url(${BOSS_IMG[b.art] || ''})"></span>
+                      ${b.order < state.beaten ? '<span class="beaten">✔</span>' : b.order > state.beaten ? '<span class="beaten lock">🔒</span>' : ''}
                       <span class="name-band">${esc(b.name)}</span>
                       <span class="stats top"><span class="stat" title="Enragé au tour ${b.enrageRound}">${ic('skull')}<b>${b.enrageRound}</b></span></span>
                     </button>`).join('')}
                 </div>
                 <div class="lobby-controls">
+                  <select data-action="campaign" ${isHost ? '' : 'disabled'} title="Progression de la campagne (avance toute seule après chaque victoire)">
+                    ${CAMPAIGN_STEPS.map((label, k) => `<option value="${k}" ${state.beaten === k ? 'selected' : ''}>${label}</option>`).join('')}
+                  </select>
                   <select data-action="difficulty" ${isHost ? '' : 'disabled'}>
                     ${Object.entries(catalog.difficulties).map(([id, d]) => `<option value="${id}" ${state.difficulty === id ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}
                   </select>
@@ -316,40 +359,47 @@ function renderGame() {
   const targeting = !!ui.pending;
   const b = g.boss;
   const online = (h) => (state.players.find((p) => p.seat === h.seat) || {}).online !== false;
+  const isActive = (i) => g.current === i && g.phase === 'action' && !g.awaitingStarter;
 
-  // Héros à sa place au bord de l'écran, comme dans l'appli.
-  const heroSeat = (h, i) => {
+  const dotsOf = (h, i) => (g.phase === 'action'
+    ? Array.from({ length: 3 }, (_, k) => `<i class="dot ${k < h.turnsLeft ? 'on' : ''}"></i>`).join('') +
+      (isActive(i) && h.turnActions > 1 ? '<i class="dot bonus"></i>'.repeat(h.turnActions - 1) : '')
+    : '');
+  const tokens = (h) => `
+    ${h.poison ? `<span class="tok poison" title="Jetons Poison">${ic('poison')}${h.poison}</span>` : ''}
+    ${h.raven ? '<span class="tok" title="Malédiction du corbeau posée">🐦‍⬛</span>' : ''}
+    ${h.nextMods ? `<span class="tok" title="Bonus sur la prochaine Attaque">${ic('magic')}</span>` : ''}
+    ${g.phase === 'discard' ? `<span class="tok">${h.ready ? '✔ prêt' : '… défausse'}</span>` : ''}`;
+  const attackOf = (i) => {
     const atk = g.attacks[i] || { value: 0, effects: {} };
-    const active = g.current === i && g.phase === 'action';
-    const dots = g.phase === 'action'
-      ? Array.from({ length: 3 }, (_, k) => `<i class="dot ${k < h.turnsLeft ? 'on' : ''}"></i>`).join('') +
-        (active && h.turnActions > 1 ? '<i class="dot bonus"></i>'.repeat(h.turnActions - 1) : '')
-      : '';
-    const seatIdx = h.seat ?? i;
-    return `
-      <div class="seat-slot hero-seat s-${SEATS[seatIdx].side} ${active ? 'active' : ''} ${h.mine ? 'mine' : ''} ${targeting ? 'targetable' : ''} ${online(h) ? '' : 'offline'}"
-           style="${seatStyle(seatIdx)}" ${targeting ? `data-action="target" data-idx="${i}"` : ''}
-           title="${esc(h.name)} — ${esc(catalog.heroes[h.hero].name)} ${esc(catalog.classes[h.cls].name)}">
-        <div class="seat-main">
-          <div class="seat-portrait">
-            ${portrait(h.hero, 'sq')}
-            <span class="seat-hp" title="Points de vie">${h.hp}</span>
-          </div>
-          <div class="seat-dots">${dots}</div>
-          <div class="seat-attack ${atk.value === 0 ? 'zero' : ''}" title="Attaque prévue du boss">
-            <span>${ic('fangs')}<b>${atk.value}</b></span>
-            ${atk.effects.poison ? `<span class="fx">${ic('poison')}<b>${atk.effects.poison}</b></span>` : ''}
-          </div>
-        </div>
-        <div class="seat-info">
-          <span class="seat-name">${esc(h.name)}${h.mine ? ' (toi)' : ''}</span>
-          ${h.poison ? `<span class="tok poison" title="Jetons Poison">${ic('poison')}${h.poison}</span>` : ''}
-          ${h.raven ? '<span class="tok" title="Malédiction du corbeau posée">🐦‍⬛</span>' : ''}
-          ${h.nextMods ? `<span class="tok" title="Bonus sur la prochaine Attaque">${ic('magic')}</span>` : ''}
-          ${g.phase === 'discard' ? `<span class="tok">${h.ready ? '✔' : '…'}</span>` : ''}
-        </div>
-      </div>`;
+    return `<div class="seat-attack ${atk.value === 0 ? 'zero' : ''}" title="Attaque prévue du boss contre ce héros">
+      <span>${ic('fangs')}<b>${atk.value}</b></span>
+      ${atk.effects.poison ? `<span class="fx">${ic('poison')}<b>${atk.effects.poison}</b></span>` : ''}
+    </div>`;
   };
+  const voting = g.phase === 'action' && g.awaitingStarter && !g.result;
+  const heroAttrs = (h, i, cls) => `class="${cls} ${isActive(i) ? 'active' : ''} ${h.mine ? 'mine' : ''} ${targeting ? 'targetable' : ''} ${voting ? 'votable' : ''} ${voting && g.myVote === i ? 'voted' : ''} ${online(h) ? '' : 'offline'}"
+    data-hero="${i}" ${targeting ? `data-action="target" data-idx="${i}"` : voting ? `data-action="vote" data-idx="${i}"` : ''}
+    title="${esc(h.name)} — ${esc(catalog.heroes[h.hero].name)} ${esc(catalog.classes[h.cls].name)}"`;
+
+  // Héros en fiche, alignés sous le boss dans l'ordre du tour.
+  const heroCard = (h, i) => `
+    <div ${heroAttrs(h, i, 'hero-card-row')}>
+      <span class="order-num">${i + 1}</span>
+      <div class="seat-portrait">${portrait(h.hero, 'sq')}<span class="seat-hp" title="Points de vie">${h.hp}</span></div>
+      <div class="hcr-body">
+        <div class="hcr-name">${esc(h.name)}${h.mine ? ' <small>(toi)</small>' : ''}
+          ${isActive(i) ? '<span class="now">joue</span>' : ''}</div>
+        <div class="hcr-sub">${esc(catalog.heroes[h.hero].name)} · ${ic(CLASS_ICON[h.cls])} ${esc(catalog.classes[h.cls].name)}</div>
+        <div class="hcr-meta"><span class="dots">${dotsOf(h, i)}</span>${tokens(h)}
+          ${h.curses.map((c) => `<span class="curse-tok ${c.kind}" title="${esc(c.name)} : ${esc(c.text)}">${ic('skull')}</span>`).join('')}
+          ${h.pendingCurses ? `<span class="curse-tok pending" title="Malédiction(s) reçue(s) face cachée : révélée(s) au début de la prochaine phase d'actions">🂠×${h.pendingCurses}</span>` : ''}
+        </div>
+        ${h.play.length ? `<div class="played">${h.play.map((c) => `<span class="chip t-${cardType(catalog.cards[c.id])}">${esc(catalog.cards[c.id].name)}</span>`).join('')}</div>` : ''}
+      </div>
+      ${attackOf(i)}
+      ${voting ? `<span class="vote-badge" title="Votes pour que ${esc(h.name)} commence">${'●'.repeat(g.starterVotes[i])}${g.starterVotes[i] ? '' : '○'}${g.myVote === i ? '<small>ton vote</small>' : ''}</span>` : ''}
+    </div>`;
 
   // Message central en jaune, comme l'appli (« X, effectue 1 action. »).
   let message = '';
@@ -359,7 +409,7 @@ function renderGame() {
     actions = '<button class="btn primary" data-action="lobby">Retour au salon</button>';
   } else if (ui.pending) {
     message = `Choisis un héros : ${plain(ui.pending.steps[ui.pending.targets.length])}`;
-    actions = '<span>Clique sur un héros autour de l’écran.</span><button class="btn small ghost" data-action="cancel">Annuler</button>';
+    actions = '<span>Clique sur un héros.</span><button class="btn small ghost" data-action="cancel">Annuler</button>';
   } else if (g.choice) {
     const who = g.heroes[g.choice.hero];
     message = `${who.name} choisit une carte…`;
@@ -369,15 +419,18 @@ function renderGame() {
         : 'Masque de clairvoyance : choisis la carte à jouer (les autres retournent sur ta pioche)';
       actions = `<div class="choice"><b>${what}</b>
         <div class="cards">${g.choice.options.map((c) => cardHtml(c.id, { cls: 'clickable', attrs: `data-action="choose" data-uid="${esc(c.uid)}"` })).join('')}</div>
-        ${g.choice.allowTop ? '<button class="btn small" data-action="choose" data-uid="__top">Jouer plutôt la carte du dessus de ma pioche</button>' : ''}</div>`;
+        ${g.choice.allowTop ? '<button class="btn small" data-action="choose" data-uid="__top">Jouer plutôt la carte du dessus de ma pioche</button>' : ''}
+        ${g.choice.from === 'mask' ? `<button class="btn small ghost" data-action="mask-under">Les 2 autres cartes iront ${ui.maskUnder ? '<b>sous</b>' : '<b>sur</b>'} ma pioche (changer)</button>` : ''}</div>`;
     }
   } else if (g.phase === 'action' && g.awaitingStarter) {
-    message = 'Qui commence ce tour ?';
-    actions = `<span>Discutez-en, puis :</span>${g.heroes.map((h, i) => `<button class="btn small" data-action="starter" data-idx="${i}">${esc(h.name)}</button>`).join('')}`;
+    const votes = g.starterVotes.reduce((n, v) => n + v, 0);
+    message = `Qui commence ? Votez sur un héros (${votes}/${g.heroes.length})`;
   } else if (g.phase === 'action') {
     const cur = g.heroes[g.current];
     message = `${cur.name}, effectue ${cur.turnActions} action${cur.turnActions > 1 ? 's' : ''}.`;
-    if (myTurn) actions = `<span>À toi ! ${me.turnsLeft} tour${me.turnsLeft > 1 ? 's' : ''} restant${me.turnsLeft > 1 ? 's' : ''}.</span><button class="btn small ghost" data-action="pass">Passer</button>`;
+    actions = myTurn
+      ? `<span><b>À toi de jouer !</b> ${me.turnsLeft} tour${me.turnsLeft > 1 ? 's' : ''} restant${me.turnsLeft > 1 ? 's' : ''} dans cette manche.</span><button class="btn small ghost" data-action="pass">Passer</button>`
+      : `<span>C'est au tour de <b>${esc(cur.name)}</b>.</span>`;
   } else if (g.phase === 'discard') {
     message = 'Défaussez vos cartes.';
     const keep = me.handCount - ui.discardSel.size;
@@ -397,6 +450,8 @@ function renderGame() {
     <div class="items">
       <button class="item" data-action="item" data-item="backpack" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.backpack.text)}">
         ${ic('backpack', 'big')}<span>${esc(catalog.items.backpack.name)}</span><small>∞</small></button>
+      ${g.items.charm ? `<button class="item" data-action="item" data-item="charm" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.charm.text)}">
+        <span class="big-emoji">🍀</span><span>${esc(catalog.items.charm.name)}</span><small>∞</small></button>` : ''}
       <button class="item" data-action="item" data-item="potion" ${myTurn && !targeting && g.items.potions > 0 ? '' : 'disabled'} title="${esc(catalog.items.potion.text)}">
         ${ic('potion', 'big')}<span>${esc(catalog.items.potion.name)}</span><small>× ${g.items.potions}</small></button>
     </div>` : '';
@@ -405,59 +460,59 @@ function renderGame() {
   const shield = (t) => `
     <div class="crest s-${t} ${b.shields[t] ? '' : 'broken'} ${g.typesThisRound.includes(t) ? 'lit' : ''} ${b.toxic === t ? 'toxic' : ''}"
          title="Bouclier ${DMG_NAME[t]}${b.toxic === t ? ' — venimeux : le toucher empoisonne' : ''}${g.typesThisRound.includes(t) ? ' — Attaque jouée : les Soutiens fonctionnent' : ''}">
-      <div class="crest-shield">${ic(b.toxic === t ? 'poison' : 'skull', 'crest-mark')}<b>${b.shields[t]}</b></div>
+      <div class="crest-shield ${b.cursedShield === t ? 'cursed' : ''}" title="${b.cursedShield === t ? 'Bouclier maudit : le toucher donne une malédiction' : ''}">${ic(b.toxic === t ? 'poison' : 'skull', 'crest-mark')}<b>${b.shields[t]}</b></div>
       <div class="crest-type">${ic(t)}</div>
+    </div>`;
+
+  // L'écran du boss : illustration, nom, message, boucliers, vie.
+  const bossScreen = `
+    <div class="screen" style="background-image:url(${BOSS_IMG[b.art] || ''})">
+      ${g.result ? '' : `<button class="corner tl skull-btn" data-action="giveup" title="Abandonner le combat">${ic('skull')}</button>`}
+      <div class="boss-title">${esc(b.name)}
+        <span class="enrage ${b.enraged ? 'on' : ''}" title="${b.enraged ? 'Enragé !' : `Enragé au tour ${b.enrageAt}`}">${ic('skull')}<b>${b.enraged ? '!' : b.enrageAt}</b></span>
+      </div>
+      <div class="screen-message ${g.result || ''}">${esc(message)}</div>
+      <div class="crests">${['melee', 'ranged', 'magic'].map(shield).join('')}</div>
+      <div class="corner bl round-box" title="Tour">${ic('hourglass')}<b>${g.round}</b></div>
+      <div class="corner br heart-box" title="Vie du boss : ${b.life} / ${b.maxLife}">
+        ${b.poison ? `<span class="boss-tok" title="Poison sur le boss">${ic('poison')}${b.poison}</span>` : ''}
+        ${b.antiBoss ? `<span class="boss-tok" title="Anti-Boss-3000 actif">🤖${b.antiBoss}</span>` : ''}
+        <b>${b.life}</b><span class="heart">${ic('heal')}</span>
+      </div>
+    </div>`;
+
+  const abilities = `
+    <div class="abilities parchment">
+      <h3>Capacités du boss</h3>
+      ${g.discovered.length
+        ? `<ul>${g.discovered.map((a) => `<li><span class="ab ab-${a.kind}" title="${AB_LABEL[a.kind] || ''}">${ic(AB_ICON[a.kind] || 'skull')}</span><div><b>${esc(a.name)}</b><span>${esc(a.text)}</span></div></li>`).join('')}</ul>`
+        : '<p class="muted">Aucune découverte pour l’instant. Observez le boss !</p>'}
+    </div>`;
+  const log = `
+    <div class="log parchment">
+      <h3>Chronique du combat</h3>
+      <ul>${g.log.slice().reverse().map((l) => `<li class="k-${esc(l.k)}">${esc(l.m)}</li>`).join('')}</ul>
+    </div>`;
+  const actionBar = actions ? `<div class="action-bar ${myTurn || (g.phase === 'discard' && !me.ready) || ui.pending ? 'mine' : ''}">${actions}</div>` : '';
+  const handZone = `<section class="hand-zone"><div class="cards hand">${hand || '<p class="muted">Aucune carte en main.</p>'}</div>${items}</section>`;
+
+  const body = `
+    <div class="game-grid">
+      <div class="main">
+        <div class="boss-banner ${b.enraged ? 'enraged' : ''}"><div class="screen-wrap">${bossScreen}</div></div>
+        <div class="hero-row">${g.heroes.map((h, i) => heroCard(h, i)).join('<span class="row-arrow">➜</span>')}</div>
+        ${actionBar}${handZone}
+      </div>
+      <aside class="side">${abilities}${log}</aside>
     </div>`;
 
   $app.innerHTML = `
     <div class="game">
       <header class="topbar">
         ${logo()}
-        <div class="round-info"><span class="phase">${esc(g.phaseLabel)}</span><span class="diff">${esc(g.difficulty)}</span></div>
-        <div class="room">Salon <b class="code">${esc(state.code)}</b></div>
+        <div class="room">${muteButton()} ${esc(g.difficulty)} · Salon <b class="code">${esc(state.code)}</b></div>
       </header>
-      <div class="game-grid">
-        <div class="main">
-          <div class="scene">
-            <div class="tablet ${b.enraged ? 'enraged' : ''}">
-              <div class="screen-wrap">
-                <div class="screen" style="background-image:url(${BOSS_IMG[b.art] || ''})">
-                  ${g.result ? '' : `<button class="corner tl skull-btn" data-action="giveup" title="Abandonner le combat">${ic('skull')}</button>`}
-                  <div class="boss-title">${esc(b.name)}
-                    <span class="enrage ${b.enraged ? 'on' : ''}" title="${b.enraged ? 'Enragé !' : `Enragé au tour ${b.enrageAt}`}">${ic('skull')}<b>${b.enraged ? '!' : b.enrageAt}</b></span>
-                  </div>
-                  <div class="screen-message ${g.result || ''}">${esc(message)}</div>
-                  <div class="crests">${['melee', 'ranged', 'magic'].map(shield).join('')}</div>
-                  <div class="corner bl round-box" title="Tour">${ic('hourglass')}<b>${g.round}</b></div>
-                  <div class="corner br heart-box" title="Vie du boss : ${b.life} / ${b.maxLife}">
-                    ${b.poison ? `<span class="boss-tok" title="Poison sur le boss">${ic('poison')}${b.poison}</span>` : ''}
-                    ${b.antiBoss ? `<span class="boss-tok" title="Anti-Boss-3000 actif">🤖${b.antiBoss}</span>` : ''}
-                    <b>${b.life}</b><span class="heart">${ic('heal')}</span>
-                  </div>
-                </div>
-                ${g.heroes.map(heroSeat).join('')}
-              </div>
-            </div>
-          </div>
-          ${actions ? `<div class="action-bar ${myTurn || (g.phase === 'discard' && !me.ready) || ui.pending ? 'mine' : ''}">${actions}</div>` : ''}
-          <section class="hand-zone">
-            <div class="cards hand">${hand || '<p class="muted">Aucune carte en main.</p>'}</div>
-            ${items}
-          </section>
-        </div>
-        <aside class="side">
-          <div class="abilities parchment">
-            <h3>Capacités du boss</h3>
-            ${g.discovered.length
-              ? `<ul>${g.discovered.map((a) => `<li><span class="ab ab-${a.kind}" title="${AB_LABEL[a.kind] || ''}">${ic(AB_ICON[a.kind] || 'skull')}</span><div><b>${esc(a.name)}</b><span>${esc(a.text)}</span></div></li>`).join('')}</ul>`
-              : '<p class="muted">Aucune découverte pour l’instant. Observez le boss !</p>'}
-          </div>
-          <div class="log parchment">
-            <h3>Chronique du combat</h3>
-            <ul>${g.log.slice().reverse().map((l) => `<li class="k-${esc(l.k)}">${esc(l.m)}</li>`).join('')}</ul>
-          </div>
-        </aside>
-      </div>
+      ${body}
     </div>`;
 }
 
@@ -472,6 +527,8 @@ function targetSteps(card) {
 }
 
 function startPlay(uid, kind = 'card', id = null) {
+  const meHero = state.game.heroes.find((h) => h.mine);
+  if (kind === 'card' && meHero.randomPlay) return act({ type: 'play', uid, targets: [] });
   const cardId = id || state.game.heroes.find((h) => h.mine).hand.find((c) => c.uid === uid).id;
   const steps = targetSteps(catalog.cards[cardId]);
   const type = kind === 'card' ? 'play' : 'choose';
@@ -486,7 +543,7 @@ function pickTarget(idx) {
   if (p.targets.length < p.steps.length) return render();
   ui.pending = null;
   if (p.kind === 'card') act({ type: 'play', uid: p.uid, targets: p.targets });
-  else if (p.kind === 'choose') act({ type: 'choose', uid: p.uid, targets: p.targets });
+  else if (p.kind === 'choose') act({ type: 'choose', uid: p.uid, targets: p.targets, under: !!ui.maskUnder });
   else act({ type: 'item', item: 'potion', target: p.targets[0] });
   render();
 }
@@ -547,7 +604,25 @@ document.addEventListener('click', (ev) => {
       break;
     case 'boss': socket.emit('settings', { boss: el.dataset.id }); break;
     case 'start': socket.emit('start'); break;
-    case 'starter': act({ type: 'starter', hero: Number(el.dataset.idx) }); break;
+    case 'vote': act({ type: 'vote', hero: Number(el.dataset.idx) }); break;
+    case 'mute': Sfx.toggle(); render(); break;
+    case 'mask-under': ui.maskUnder = !ui.maskUnder; render(); break;
+    case 'loot': {
+      const me = state.players.find((p) => p.id === token);
+      const card = catalog.cards[el.dataset.id];
+      const others = (me.loot || []).filter((id) => catalog.cards[id].loot !== card.loot);
+      const loot = (me.loot || []).includes(card.id) ? others : [...others, card.id];
+      socket.emit('loadout', { loot, removed: (me.removed || []).slice(0, loot.length) });
+      break;
+    }
+    case 'remove-card': {
+      const me = state.players.find((p) => p.id === token);
+      const removed = [...(me.removed || [])];
+      const k = removed.indexOf(el.dataset.id);
+      if (k >= 0) removed.splice(k, 1); else removed.push(el.dataset.id);
+      socket.emit('loadout', { loot: me.loot || [], removed });
+      break;
+    }
     case 'card':
       if (state.game.phase === 'discard') {
         const uid = el.dataset.uid;
@@ -560,7 +635,9 @@ document.addEventListener('click', (ev) => {
     case 'choose': {
       const uid = el.dataset.uid;
       if (uid === '__top') act({ type: 'choose', uid, targets: [] });
-      else startPlay(uid, 'choose', state.game.choice.options.find((c) => c.uid === uid).id);
+      else if (state.game.choice.from === 'mask' && !targetSteps(catalog.cards[state.game.choice.options.find((c) => c.uid === uid).id]).length) {
+        act({ type: 'choose', uid, targets: [], under: !!ui.maskUnder });
+      } else startPlay(uid, 'choose', state.game.choice.options.find((c) => c.uid === uid).id);
       break;
     }
     case 'target': pickTarget(Number(el.dataset.idx)); break;
@@ -584,6 +661,7 @@ document.addEventListener('click', (ev) => {
 
 document.addEventListener('change', (ev) => {
   if (ev.target.dataset.action === 'difficulty') socket.emit('settings', { difficulty: ev.target.value });
+  if (ev.target.dataset.action === 'campaign') socket.emit('settings', { beaten: Number(ev.target.value) });
 });
 
 document.addEventListener('keydown', (ev) => {

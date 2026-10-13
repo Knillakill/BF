@@ -17,6 +17,9 @@ Puis ouvrir http://localhost:3000.
 3. Comme dans l'appli officielle, chacun clique sur une place libre (« + ») au bord de la tablette, choisit son héros et sa classe, puis s'assoit.
    L'ordre du tour suit les places dans le sens des aiguilles d'une montre. Cliquer sur son héros le renvoie à la sélection ; l'hôte peut retirer un joueur (poubelle).
 4. L'hôte choisit le boss et la difficulté, puis lance le combat avec la flèche verte.
+5. La campagne avance toute seule après chaque victoire (M. Pantin → le Prince → la Chasseuse d'âmes). L'hôte peut aussi la régler à la main.
+   Après le Prince (★1) : chaque joueur choisit un butin ★1 et peut retirer une carte de son paquet, le Porte-bonheur est débloqué,
+   et la pioche de 17 malédictions est utilisée par les boss qui maudissent.
 
 Si quelqu'un recharge la page ou perd la connexion, il retrouve automatiquement sa partie.
 
@@ -71,7 +74,8 @@ Où en est le catalogue :
 | La répartition des cartes avancées entre Halfelin/Roublard et Elfe/Druide | `advanced` dans [src/data/cards.js](src/data/cards.js) |
 
 - La Malédiction du corbeau est utilisée automatiquement dès qu'une capacité ⌛ touche son porteur.
-- Pas encore géré : cartes de butin (données ★1 déjà saisies), Malédictions, Panique, Paralysie, Feu, capacités de héros et de classe, boss 2 à 10.
+- Malédictions : 13 textes relevés en vidéo, la répartition des 17 cartes (doublons) est supposée.
+- Pas encore géré : butin ★2 et plus, Panique, Paralysie, Feu, capacités de héros et de classe, boss 3 à 10.
 
 ## Tests
 

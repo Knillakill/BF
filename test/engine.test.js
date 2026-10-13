@@ -21,6 +21,7 @@ for (const deck of [...Object.values(HEROES), ...Object.values(CLASSES)]) {
 function totalCards(h) {
   return h.hand.length + h.draw.length + h.discard.length + h.play.length + h.exiled.length + (h.raven ? 1 : 0);
 }
+const { CURSES } = require('../src/data/curses');
 
 // Met une carte en main et donne la main au joueur idx.
 function give(g, idx, id, uid = `t${Math.random()}`) {
@@ -55,7 +56,7 @@ function botTurn(g) {
   try {
     g.playCard(h.playerId, card.uid, targets);
   } catch (err) {
-    if (/rediriger|autre héros/.test(err.message)) return g.pass(h.playerId);
+    if (/rediriger|autre héros|sacrifice/.test(err.message)) return g.pass(h.playerId);
     throw err;
   }
 }
@@ -72,7 +73,7 @@ function simulate(bossId, difficulty) {
     else if (g.phase === 'action') botTurn(g);
     else if (g.phase === 'discard') {
       for (const h of g.heroes) {
-        const extra = h.hand.length - h.handLimit;
+        const extra = h.hand.length - g.limitOf(h);
         g.submitDiscard(h.playerId, extra > 0 ? h.hand.slice(0, extra).map((c) => c.uid) : []);
       }
     } else throw new Error(`Phase inattendue : ${g.phase}`);
@@ -121,6 +122,33 @@ function simulate(bossId, difficulty) {
   g.playCard('c', 'x3', [0]);
   assert.deepStrictEqual(g.attacks[0], { value: 0, effects: {} });
   assert.strictEqual(g.current, 0, 'après le dernier joueur, on revient au premier');
+}
+
+// ----- Vote pour qui commence -----
+{
+  const g = new Game(players, 'puppet', 'advanced');
+  g.voteStarter('a', 1);
+  assert.ok(g.awaitingStarter, 'on attend tous les votes');
+  g.voteStarter('a', 2); // on peut changer d'avis
+  g.voteStarter('b', 2);
+  g.voteStarter('c', 0);
+  assert.strictEqual(g.awaitingStarter, false);
+  assert.strictEqual(g.current, 2, 'Sam a 2 voix sur 3');
+
+  // Égalité : tirage au sort entre les ex æquo uniquement
+  const winners = new Set();
+  for (let k = 0; k < 40; k++) {
+    const t = new Game(players, 'puppet', 'advanced');
+    t.voteStarter('a', 0); t.voteStarter('b', 1); t.voteStarter('c', 2);
+    winners.add(t.current);
+  }
+  assert.ok(winners.size > 1, 'égalité parfaite : le tirage varie');
+
+  // Un joueur déconnecté ne bloque pas le vote
+  const d = new Game(players, 'puppet', 'advanced');
+  d.voteStarter('a', 1, ['a', 'b']);
+  d.voteStarter('b', 1, ['a', 'b']);
+  assert.strictEqual(d.current, 1);
 }
 
 // ----- Cartes spéciales -----
@@ -239,9 +267,90 @@ function simulate(bossId, difficulty) {
   assert.strictEqual(g.boss.poison, 1, 'le Prince peut être empoisonné');
 }
 
+// ----- Campagne : butin, cartes retirées, Porte-bonheur -----
+{
+  const withLoot = players.map((p, i) => (i === 0 ? { ...p, loot: ['blade_of_wind'], removed: ['tunnel_blaster'] } : p));
+  const g = new Game(withLoot, 'prince', 'advanced', { stars: 1 });
+  const all = [...g.heroes[0].hand, ...g.heroes[0].draw].map((c) => c.id);
+  assert.strictEqual(all.length, 20, '20 cartes + 1 butin - 1 retirée');
+  assert.ok(all.includes('blade_of_wind') && !all.includes('tunnel_blaster'));
+  assert.ok(g.items.charm, 'Porte-bonheur débloqué après le Prince');
+  assert.strictEqual(new Game(players, 'prince', 'advanced').items.charm, false);
+
+  // Porte-bonheur : joue la carte du dessus, éclair ignoré
+  g.voteStarter('a', 0); g.voteStarter('b', 0); g.voteStarter('c', 0);
+  g.heroes[0].draw.push({ uid: 'lc', id: 'magic_vortex' });
+  const before = g.heroes[0].turnActions;
+  g.useItem('a', 'charm');
+  assert.ok(g.heroes[0].play.some((c) => c.uid === 'lc'));
+  assert.notStrictEqual(g.current === 0 && g.heroes[0].turnActions > before - 1, true, "l'éclair du Porte-bonheur est ignoré");
+}
+
+// ----- Masque de clairvoyance : cartes remises sous la pioche -----
+{
+  const g = new Game(players, 'prince', 'advanced');
+  const tom = g.heroes[1];
+  tom.draw.push({ uid: 'u3', id: 'star_blade' }, { uid: 'u2', id: 'sunfire' }, { uid: 'u1', id: 'fireball' });
+  const uid = give(g, 1, 'mask_clairvoyance');
+  g.playCard('b', uid);
+  g.choose('b', 'u1', [], true);
+  assert.deepStrictEqual(tom.draw.slice(0, 2).map((c) => c.uid), ['u2', 'u3'], 'les 2 autres vont sous la pioche');
+}
+
+// ----- Malédictions -----
+{
+  const g = new Game(players, 'huntress', 'advanced', { stars: 1 });
+  assert.strictEqual(g.curseDeck.length, 17);
+  const lisa = g.heroes[0];
+  g.curse(lisa);
+  assert.strictEqual(lisa.pendingCurses.length, 1, 'reçue face cachée');
+  // Révélation au début de la phase d'actions
+  lisa.pendingCurses = ['perm_hand', 'hurt_attack', 'instant_poison'];
+  const p0 = lisa.poison;
+  g.revealCurses();
+  assert.deepStrictEqual(lisa.curses, ['perm_hand', 'hurt_attack']);
+  assert.strictEqual(lisa.poison, p0 + 2, 'instantanée : 2 Poison');
+  assert.strictEqual(g.limitOf(lisa), lisa.handLimit - 1, 'limite de main -1');
+  // Carte d'attaque jouée de la main : -2 PV
+  lisa.hp = 30; lisa.maxHp = 30;
+  const uid = give(g, 0, 'star_blade');
+  g.playCard('a', uid);
+  assert.ok(lisa.hp <= 28, 'Malédiction de la lame : -2 PV');
+  // Fin de la phase d'actions : la temporaire part, la permanente reste
+  g.endActionPhase();
+  assert.deepStrictEqual(lisa.curses, ['perm_hand']);
+  // Brise-malédiction
+  const uid2 = give(g, 1, 'curse_breaker');
+  g.phase = 'action';
+  g.playCard('b', uid2, [0]);
+  assert.deepStrictEqual(lisa.curses, []);
+}
+
+// ----- La Chasseuse d'âmes -----
+{
+  const g = new Game(players, 'huntress', 'advanced', { stars: 1 });
+  for (const h of g.heroes) { h.hp = 60; h.maxHp = 60; }
+  const life1 = g.boss.maxLife;
+  g.hitBossLife(g.boss.life);
+  assert.strictEqual(g.result, null, 'elle se relève');
+  assert.ok(g.boss.flags.risen && g.boss.maxLife > life1, 'phase 2 plus résistante');
+  assert.ok(g.heroes.every((h) => h.pendingCurses.length >= 1), 'chaque héros reçoit une malédiction');
+  g.hitBossLife(g.boss.life);
+  assert.strictEqual(g.result, 'win', 'la deuxième fois, elle est vaincue');
+
+  // Drain de vie : elle se soigne quand son attaque blesse
+  const d = new Game(players, 'huntress', 'advanced', { stars: 1 });
+  d.boss.life = 10;
+  d.attacks = d.heroes.map(() => ({ value: 2, effects: {} }));
+  for (const h of d.heroes) { h.hp = 60; h.maxHp = 60; h.turnsLeft = 0; }
+  d.awaitingStarter = false;
+  d.endActionPhase();
+  assert.ok(d.boss.life > 10, 'Drain de vie');
+}
+
 // ----- Simulations complètes -----
 const tally = {};
-for (const boss of ['puppet', 'prince']) {
+for (const boss of ['puppet', 'prince', 'huntress']) {
   for (const diff of ['beginner', 'advanced', 'pro', 'insane']) {
     let wins = 0;
     let rounds = 0;

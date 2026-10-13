@@ -35,6 +35,7 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 // Au tour 3 il devient enragé, puis « épuisé » : il perd 34 % de sa vie.
 const puppet = {
   name: 'M. Pantin',
+  order: 0,
   art: 'puppet',
   lifePerHero: 24,
   enrageRound: 3,
@@ -47,7 +48,7 @@ const puppet = {
     2: 'Le pantin a reçu ses boucliers : concentrez-vous sur un ou deux types de dégâts.',
   },
   planAttacks(g) {
-    const rage = g.boss.enraged ? g.round - g.boss.enrageAt + 1 : 0;
+    const rage = g.boss.enraged ? 2 * (g.round - g.boss.enrageAt + 1) : 0;
     return g.heroes.map(() => ({
       value: Math.max(1, rnd(4, 6) + g.diff.atk + rage),
       effects: g.round >= 2 ? { poison: 2 } : {},
@@ -58,8 +59,9 @@ const puppet = {
     const [melee, ranged, magic] = [3, 5, 7].sort(() => Math.random() - 0.5);
     return { melee, ranged, magic };
   },
+  // Vidéos : après l'épuisement, il lui reste 8 PV à 2 héros et 12 à 3 héros (4 PV par héros).
   onEnrage(g) {
-    const loss = Math.round(g.boss.life * 0.34);
+    const loss = Math.max(0, g.boss.life - 4 * g.heroes.length);
     g.ability('threshold', 'Épuisé', `M. Pantin est épuisé par tous ses efforts et perd ${loss} points de vie. C'est le moment de l'achever !`);
     g.hitBossLife(loss);
   },
@@ -76,6 +78,7 @@ const puppet = {
 //   Gonflé : à 50 % de vie, ses attaques et ses boucliers augmentent, certains boucliers deviennent venimeux.
 const prince = {
   name: 'Le Prince',
+  order: 1,
   art: 'toad',
   lifePerHero: 25,
   enrageRound: 5,
@@ -99,7 +102,7 @@ const prince = {
   },
   planAttacks(g) {
     const rage = g.boss.enraged ? 2 * (g.round - g.boss.enrageAt + 1) : 0;
-    const bloat = g.boss.flags.bloated ? 1 : 0;
+    const bloat = g.boss.flags.bloated ? 2 : 0;
     return g.heroes.map(() => {
       const poison = Math.random() < 0.5 ? (Math.random() < 0.3 ? 2 : 1) : 0;
       return {
@@ -136,8 +139,10 @@ const prince = {
   // Écrasement observé : 2 (Normal, 2 héros), 3 (4 héros ; Difficile, 3 héros). Gonflé ne les augmente pas.
   onStatus(g) {
     const n = g.heroes.length;
-    const lick = Math.max(2, 3 + 2 * g.diff.atk + (n >= 3 ? 1 : 0));
-    const overrun = Math.max(1, 2 + Math.max(0, g.diff.atk) + (n >= 4 ? 1 : 0));
+    // Relevés : Coup de langue 2–3 (2 héros), 4 (2 héros Pro), 6 (3 héros Pro), 4 (4 héros) ;
+    // Écrasement 2–4 (2 héros), 3 (3 héros Pro), 5 (3 héros Démentiel), 3 (4 héros), +2 après « Gonflé ».
+    const lick = Math.max(2, 3 + g.diff.atk + (n >= 3 ? 1 + g.diff.atk : 0));
+    const overrun = Math.max(1, 2 + Math.max(0, g.diff.atk) + (n >= 4 ? 1 : 0) + (g.boss.flags.bloated ? 2 : 0));
     if (g.round % 2 === 1) {
       if (!g.ability('recurring', 'Coup de langue',
         'Tous les 2 tours (tours impairs), le héros qui a le plus de PV perd des PV et reçoit 1 Poison.')) return;
@@ -159,13 +164,107 @@ const prince = {
         g.boss.flags.bloated = true;
         g.addShields({ melee: 2, ranged: 2, magic: 2 });
         g.boss.toxic = pick(['melee', 'ranged', 'magic']);
-        for (const a of g.attacks) if (a.value > 0) a.value += 1;
+        for (const a of g.attacks) if (a.value > 0) a.value += 2;
       },
     },
   ],
 };
 
-const BOSSES = { puppet, prince };
+
+// Observé (docs/recherche/bosses_0-4.md, section 2) :
+//   Deux phases : PV 21 (2 héros, niv. 1), 23→~32 (2 héros, niv. 3), 38→55 (3 héros), 47→63 (3 héros, niv. 4).
+//   Enragée au tour 5. Attaques 3 à 6 par héros, avec malédiction et/ou poison en effet additionnel.
+//   Drain de vie : elle se soigne de 2/3/4 PV pour chaque héros que son attaque blesse.
+//   Bouclier maudit : le héros qui touche ce bouclier reçoit une malédiction.
+//   Chasse aux âmes (tours impairs) : le héros qui a le plus de PV perd 3/4/7 PV et reçoit une malédiction.
+//   Cauchemar (tours pairs) : chaque héros perd 6 PV puis défausse 2 cartes de sa pioche (4 au tour 4).
+//   Résurrection : à 0 PV, elle se relève avec ses PV de phase 2 et chaque héros reçoit une malédiction.
+const huntress = {
+  name: "La Chasseuse d'âmes",
+  order: 2,
+  art: 'huntress',
+  lifePerHero: 12,
+  phase2PerHero: 17,
+  enrageRound: 5,
+  statuses: ['Poison', 'Malédiction'],
+  items: true,
+  curses: true,
+  legend: "Lorsque cette gigantesque silhouette fantomatique appartenait encore au monde des vivants, elle était une " +
+          "puissante mage du ciel. Mais elle se tourna vers la magie noire et y perdit son âme. Dorénavant, elle est en " +
+          "quête d'êtres faibles d'esprit comme vous. Par le biais de malédictions, elle leur vole leur âme. Ça vous tente ?\n" +
+          "Taille : plus de 7 m · Âge : 237 ans · Ruines de Port-Sombre · Trésor : une rune céleste.\n" +
+          "Astuce : réduisez ses attaques à zéro pour l'empêcher de se soigner, et soignez-vous avant de la vaincre une première fois…",
+  quotes: {
+    0: 'Donnez-moi votre âme et j’épargnerai vos corps faibles.',
+    1: 'Des esprits faibles sont venus me visiter. Approchez-vous.',
+    2: 'Vous aurais-je sous-estimés ? Impossible.',
+    3: 'Mes malédictions vous plaisent-elles ?',
+    4: 'Vos âmes veulent me rejoindre. Elles sentent si bon.',
+    5: 'Assez joué. Il est temps d’en finir.',
+    win: 'Vous avez libéré les âmes innombrables… et la mienne peut enfin reposer en paix.',
+    lose: 'Vos âmes m’appartiennent désormais.',
+  },
+  planAttacks(g) {
+    const rage = g.boss.enraged ? 2 * (g.round - g.boss.enrageAt + 1) : 0;
+    return g.heroes.map(() => {
+      const r = Math.random();
+      return {
+        value: Math.max(1, rnd(3, 5) + g.diff.atk + rage),
+        effects: r < 0.4 ? { curse: 1 } : r < 0.6 ? { poison: 2 } : {},
+      };
+    });
+  },
+  shields(g) {
+    const up = Math.floor((g.round - 1) / 2) + Math.max(0, g.heroes.length - 2);
+    g.boss.cursedShield = pick(['melee', 'ranged', 'magic']);
+    return { melee: rnd(1, 3) + up, ranged: rnd(2, 4) + up, magic: rnd(1, 3) + up };
+  },
+  onHit(g, hero, dmgType, result) {
+    if (g.boss.cursedShield === dmgType && result.shield > 0) {
+      g.ability('shield', 'Bouclier maudit', 'Le héros qui touche le bouclier marqué d’un crâne violet reçoit une malédiction.');
+      g.curse(hero, 'bouclier maudit');
+    }
+  },
+  // Drain de vie : chaque héros blessé par son attaque la soigne.
+  onAttackHit(g) {
+    const n = Math.min(4, Math.max(2, 3 + g.diff.atk));
+    g.ability('attack', 'Drain de vie', `Son attaque draine votre vie : elle se soigne de ${n} PV pour chaque héros blessé.`);
+    g.healBoss(n);
+  },
+  onStatus(g) {
+    if (g.round % 2 === 1) {
+      const x = { beginner: 3, advanced: 4, pro: 6, insane: 7 }[g.difficulty] || 4;
+      if (!g.ability('recurring', 'Chasse aux âmes',
+        'Tours impairs : le héros qui a le plus de PV perd des PV et reçoit une malédiction.')) return;
+      const h = g.heroes[g.heroWithMost('hp')];
+      if (g.wards(h)) return;
+      g.hurtHero(h, x, 'Chasse aux âmes');
+      g.curse(h, 'Chasse aux âmes');
+    } else {
+      if (!g.ability('recurring', 'Cauchemar',
+        'Tours pairs : chaque héros perd 6 PV puis défausse des cartes du dessus de sa pioche (2, puis 4…).')) return;
+      for (const h of g.heroes) {
+        if (g.wards(h)) continue;
+        g.hurtHero(h, 6, 'Cauchemar');
+        if (g.result) return;
+        g.millTop(h, g.round);
+      }
+    }
+  },
+  // Résurrection : la première fois qu'elle tombe à 0 PV, elle se relève (phase 2).
+  onZero(g) {
+    if (g.boss.flags.risen) return false;
+    g.boss.flags.risen = true;
+    const life = Math.round(this.phase2PerHero * g.heroes.length * g.diff.life);
+    g.boss.maxLife = life;
+    g.boss.life = life;
+    g.ability('threshold', 'Résurrection', 'La Chasseuse d’âmes se relève d’entre les morts en riant ! Chaque héros reçoit une malédiction.');
+    for (const h of g.heroes) g.curse(h, 'Résurrection');
+    return true;
+  },
+};
+
+const BOSSES = { puppet, prince, huntress };
 for (const [id, b] of Object.entries(BOSSES)) b.id = id;
 
 module.exports = { BOSSES, DIFFICULTIES };

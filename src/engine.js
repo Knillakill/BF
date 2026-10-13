@@ -3,6 +3,7 @@
 
 const { CARDS, HEROES, CLASSES, ITEMS, DMG_LABEL } = require('./data/cards');
 const { BOSSES, DIFFICULTIES } = require('./data/bosses');
+const { CURSES, CURSE_DECK_1 } = require('./data/curses');
 
 // Le livret ne précise pas si les dégâts en trop passent après avoir détruit un bouclier.
 // true = l'excédent touche la vie du boss ; false = il est perdu.
@@ -34,7 +35,9 @@ function shuffle(a) {
 const needsTarget = (e) => (e.t === 'protect' || e.target === 'one') && !e.same;
 
 class Game {
-  constructor(players, bossId, difficulty) {
+  // opts.stars : progression de la campagne (★1 = Prince vaincu : butin ★1, Porte-bonheur, malédictions).
+  // players[i].loot / .removed : cartes de butin ajoutées et cartes d'action retirées du paquet.
+  constructor(players, bossId, difficulty, opts = {}) {
     this.def = BOSSES[bossId];
     if (!this.def) throw new Error('Boss inconnu');
     this.difficulty = DIFFICULTIES[difficulty] ? difficulty : 'advanced';
@@ -47,7 +50,13 @@ class Game {
     this.heroes = players.map((p, i) => {
       const h = HEROES[p.hero];
       const c = CLASSES[p.cls];
-      const ids = [...h.cards, ...c.cards, ...(withAdvanced ? [...h.advanced, ...c.advanced] : [])];
+      const ids = [...h.cards, ...c.cards, ...(withAdvanced ? [...h.advanced, ...c.advanced, ...(p.loot || [])] : [])];
+      if (withAdvanced) {
+        for (const r of p.removed || []) {
+          const k = ids.indexOf(r);
+          if (k >= 0) ids.splice(k, 1);
+        }
+      }
       const deck = ids.map((id, k) => ({ uid: `${i}-${k}`, id }));
       return {
         playerId: p.id,
@@ -69,6 +78,8 @@ class Game {
         turnsLeft: 0,
         turnActions: 0,
         bonusTurn: false,
+        curses: [], // malédictions actives (identifiants)
+        pendingCurses: [], // reçues face cachée, révélées au début de la phase d'actions
       };
     });
 
@@ -83,10 +94,15 @@ class Game {
       enrageAt: Math.max(2, this.def.enrageRound + this.diff.enrage),
       thresholdsDone: [],
       toxic: null,
+      cursedShield: null,
       antiBoss: 0,
       flags: {},
     };
-    this.items = this.def.items ? { backpack: true, potions: n } : null;
+    this.stars = opts.stars || 0;
+    this.items = this.def.items ? { backpack: true, potions: n, charm: this.stars >= 1 } : null;
+    // Pioche de malédictions (après le Prince) : utilisée par les boss qui maudissent.
+    this.curseDeck = this.def.curses ? shuffle([...CURSE_DECK_1]) : [];
+    this.curseDiscard = [];
     this.round = 0;
     this.phase = 'planning';
     this.attacks = [];
@@ -98,6 +114,9 @@ class Game {
     this.choice = null; // choix de carte en cours (Déjà-vu, Masque de clairvoyance)
     this.discardReady = new Set();
     this.result = null;
+    // Événements visuels (coups, protections) rejoués par les navigateurs, numérotés pour ne pas les rejouer deux fois.
+    this.events = [];
+    this.eventSeq = 0;
 
     this.say('info', `Le combat contre ${this.def.name} commence (${this.diff.label}) !`);
     this.quote(0);
@@ -110,6 +129,11 @@ class Game {
   say(k, m) {
     this.log.push({ k, m, r: this.round });
     if (this.log.length > 200) this.log.shift();
+  }
+
+  fx(e) {
+    this.events.push({ id: ++this.eventSeq, ...e });
+    if (this.events.length > 30) this.events.shift();
   }
 
   quote(key) {
@@ -126,6 +150,7 @@ class Game {
     }
     if (!this.discovered.some((a) => a.name === name)) this.discovered.push({ kind, name, text });
     this.say(`ab-${kind}`, `${name} : ${text}`);
+    this.fx({ kind: 'ability', abKind: kind, name });
     return true;
   }
 
@@ -147,6 +172,7 @@ class Game {
   hurtHero(h, n, why) {
     if (this.result || n <= 0) return;
     h.hp = Math.max(0, h.hp - n);
+    if (why !== 'attaque du boss') this.fx({ kind: 'hurt', target: this.heroes.indexOf(h), v: n, why: why || '' });
     if (why) this.say('dmg', `${h.name} perd ${n} PV (${why}).`);
     if (h.hp === 0) this.end('lose', `${h.name} est tombé au combat…`);
   }
@@ -155,6 +181,7 @@ class Game {
     const before = h.hp;
     h.hp = Math.min(h.maxHp, h.hp + n);
     this.say('heal', `${h.name} regagne ${h.hp - before} PV.`);
+    if (h.hp > before) this.fx({ kind: 'heal', target: this.heroes.indexOf(h), v: h.hp - before });
   }
 
   addPoison(h, n) {
@@ -168,7 +195,71 @@ class Game {
   }
 
   healBoss(n) {
+    const before = this.boss.life;
     this.boss.life = Math.min(this.boss.maxLife, this.boss.life + n);
+    if (this.boss.life > before) this.say('heal', `${this.def.name} regagne ${this.boss.life - before} PV.`);
+  }
+
+  // Limite de main effective (réduite par les malédictions permanentes).
+  limitOf(h) {
+    return Math.max(0, h.handLimit - h.curses.reduce((n, id) => n + (CURSES[id].handMinus || 0), 0));
+  }
+
+  hasCurse(h, flag) {
+    return h.curses.some((id) => CURSES[id][flag]);
+  }
+
+  // Le héros reçoit une malédiction face cachée ; elle sera révélée au début de la prochaine phase d'actions.
+  curse(h, why = '') {
+    if (this.result) return;
+    if (this.curseDeck.length === 0) {
+      if (this.curseDiscard.length === 0) return;
+      this.curseDeck = shuffle(this.curseDiscard);
+      this.curseDiscard = [];
+    }
+    h.pendingCurses.push(this.curseDeck.pop());
+    this.say('curse', `${h.name} reçoit une malédiction face cachée${why ? ` (${why})` : ''}.`);
+    this.fx({ kind: 'curse', target: this.heroes.indexOf(h) });
+  }
+
+  revealCurses() {
+    for (const h of this.heroes) {
+      for (const id of h.pendingCurses) {
+        const c = CURSES[id];
+        this.say('curse', `${h.name} révèle « ${c.name} » : ${c.text}`);
+        this.fx({ kind: 'curseReveal', target: this.heroes.indexOf(h), name: c.name });
+        if (c.kind === 'instant') {
+          if (c.instant.hurt) this.hurtHero(h, c.instant.hurt, c.name);
+          if (c.instant.poison) this.addPoison(h, c.instant.poison);
+          this.curseDiscard.push(id);
+        } else {
+          h.curses.push(id);
+        }
+        if (this.result) return;
+      }
+      h.pendingCurses = [];
+    }
+  }
+
+  // Malédictions déclenchées par une carte jouée de la main.
+  applyPlayCurses(h, card) {
+    const has = (t) => card.effects.some((e) => e.t === t);
+    for (const id of h.curses) {
+      const on = CURSES[id].onPlay;
+      if (!on) continue;
+      const match = on.per === 'any' || (on.per === 'attack' && has('attack')) || (on.per === 'support' && has('support')) || (on.per === 'protect' && has('protect'));
+      if (!match) continue;
+      if (on.hurt) this.hurtHero(h, on.hurt, CURSES[id].name);
+      if (on.poison) this.addPoison(h, on.poison);
+      if (this.result) return;
+    }
+  }
+
+  // Met les n cartes du dessus de la pioche dans la défausse.
+  millTop(h, n) {
+    let done = 0;
+    for (let k = 0; k < n && h.draw.length; k++) { h.discard.push(h.draw.pop()); done++; }
+    if (done) this.say('info', `${h.name} défausse les ${done} carte(s) du dessus de sa pioche.`);
   }
 
   // ---------- Déroulement d'un tour ----------
@@ -193,6 +284,7 @@ class Game {
     // Phase 2 : boucliers
     this.phase = 'shield';
     this.boss.toxic = null;
+    this.boss.cursedShield = null;
     const s = this.def.shields ? this.def.shields(this) : null;
     if (s) {
       this.boss.shields = { melee: 0, ranged: 0, magic: 0, ...s };
@@ -209,7 +301,10 @@ class Game {
     this.current = null;
     this.interrupts = [];
     this.resumeStack = [];
+    this.revealCurses();
+    if (this.result) return;
     this.awaitingStarter = true;
+    this.starterVotes = {}; // playerId -> index du héros choisi
   }
 
   chooseStarter(playerId, heroIdx) {
@@ -220,6 +315,28 @@ class Game {
     this.current = heroIdx;
     this.heroes[heroIdx].turnActions = 1;
     this.say('info', `${this.heroes[heroIdx].name} commence ce tour.`);
+  }
+
+  // Vote pour le héros qui commence : la majorité l'emporte, égalité = tirage au sort.
+  // onlineIds : joueurs connectés ; les absents ne bloquent pas le vote.
+  voteStarter(playerId, heroIdx, onlineIds = null) {
+    const voter = this.heroOf(playerId);
+    if (this.phase !== 'action' || !this.awaitingStarter) throw new Error("Ce n'est pas le moment de voter.");
+    if (!this.heroes[heroIdx]) throw new Error('Héros inconnu');
+    this.starterVotes[playerId] = heroIdx;
+    this.say('info', `${voter.name} vote pour ${this.heroes[heroIdx].name}.`);
+    const voters = this.heroes.filter((h) => !onlineIds || onlineIds.includes(h.playerId));
+    if (!voters.every((h) => h.playerId in this.starterVotes)) return;
+
+    const tally = this.heroes.map(() => 0);
+    for (const idx of Object.values(this.starterVotes)) tally[idx]++;
+    const best = Math.max(...tally);
+    const tied = tally.map((n, i) => (n === best ? i : -1)).filter((i) => i >= 0);
+    const winner = tied[Math.floor(Math.random() * tied.length)];
+    if (tied.length > 1) {
+      this.say('info', `Égalité (${tied.map((i) => this.heroes[i].name).join(', ')}) : tirage au sort !`);
+    }
+    this.chooseStarter(this.heroes[winner].playerId, winner);
   }
 
   // Appelé après chaque action : action immédiate accordée, retour au joueur interrompu ou joueur suivant.
@@ -258,14 +375,25 @@ class Game {
 
   endActionPhase() {
     this.current = null;
+    // Les malédictions temporaires sont défaussées à la fin de la phase d'actions.
+    for (const h of this.heroes) {
+      const keep = [];
+      for (const id of h.curses) (CURSES[id].kind === 'temp' ? this.curseDiscard : keep).push(id);
+      h.curses = keep;
+    }
 
     // Phase 4 : attaque du boss
     this.phase = 'attack';
     this.heroes.forEach((h, i) => {
       const a = this.attacks[i];
       if (!a || a.value <= 0) return;
+      this.fx({ kind: 'bossAttack', target: i, v: a.value, poison: a.effects.poison || 0 });
       this.hurtHero(h, a.value, 'attaque du boss');
+      if (this.result) return;
       if (a.effects.poison) this.addPoison(h, a.effects.poison);
+      if (a.effects.curse) this.curse(h, 'attaque du boss');
+      for (const id of h.curses) if (CURSES[id].hitPoison) this.addPoison(h, CURSES[id].hitPoison);
+      if (this.def.onAttackHit) this.def.onAttackHit(this, h, a.value);
     });
     if (this.result) return;
 
@@ -299,8 +427,8 @@ class Game {
     if (this.discardReady.has(h.playerId)) throw new Error('Tu as déjà validé ta défausse.');
     const set = new Set(uids || []);
     if ([...set].some((u) => !h.hand.some((c) => c.uid === u))) throw new Error('Carte inconnue');
-    if (h.hand.length - set.size > h.handLimit) {
-      throw new Error(`Tu dois garder au maximum ${h.handLimit} cartes en main.`);
+    if (h.hand.length - set.size > this.limitOf(h)) {
+      throw new Error(`Tu dois garder au maximum ${this.limitOf(h)} cartes en main.`);
     }
     h.discard.push(...h.hand.filter((c) => set.has(c.uid)));
     h.hand = h.hand.filter((c) => !set.has(c.uid));
@@ -310,7 +438,7 @@ class Game {
 
   drawPhase() {
     this.phase = 'draw';
-    for (const h of this.heroes) this.drawCards(h, Math.max(0, h.handLimit - h.hand.length));
+    for (const h of this.heroes) this.drawCards(h, Math.max(0, this.limitOf(h) - h.hand.length));
     this.startRound();
   }
 
@@ -351,13 +479,29 @@ class Game {
 
   playCard(playerId, uid, targets = []) {
     const h = this.checkTurn(playerId);
-    const pos = h.hand.findIndex((c) => c.uid === uid);
+    let pos = h.hand.findIndex((c) => c.uid === uid);
     if (pos < 0) throw new Error("Cette carte n'est pas dans ta main.");
+    // Malédiction du chaos : la carte est tirée au hasard dans la main (cibles choisies automatiquement).
+    if (this.hasCurse(h, 'random')) {
+      pos = Math.floor(Math.random() * h.hand.length);
+      targets = [];
+      this.say('curse', `Malédiction du chaos : ${h.name} joue une carte au hasard.`);
+    }
     const inst = h.hand[pos];
-    this.validateTargets(h, CARDS[inst.id], targets);
-    h.hand.splice(pos, 1);
+    if (targets.length) this.validateTargets(h, CARDS[inst.id], targets);
+    // Malédiction du sacrifice : défausser d'abord une autre carte de la main.
+    if (this.hasCurse(h, 'discardFirst')) {
+      const others = h.hand.filter((c) => c !== inst);
+      if (!others.length) throw new Error('Malédiction du sacrifice : il te faut une autre carte en main à défausser.');
+      const victim = others[Math.floor(Math.random() * others.length)];
+      h.hand = h.hand.filter((c) => c !== victim);
+      h.discard.push(victim);
+      this.say('curse', `Malédiction du sacrifice : ${h.name} défausse « ${CARDS[victim.id].name} ».`);
+    }
+    h.hand = h.hand.filter((c) => c !== inst);
     h.turnActions--;
     this.playInstance(h, inst, targets);
+    if (!this.result) this.applyPlayCurses(h, CARDS[inst.id]);
     this.afterAction();
   }
 
@@ -388,7 +532,7 @@ class Game {
       if (h.raven) h.discard.push(h.raven);
       h.raven = inst;
     }
-    const usedMods = this.resolveEffects(h, card.effects, targets, { mods, auto: opts.auto });
+    const usedMods = this.resolveEffects(h, card.effects, targets, { mods, auto: opts.auto, noLightning: opts.noLightning });
     if (mods.length && !usedMods) this.say('info', `Le bonus de « prochaine Attaque » est perdu : « ${card.name} » n'est pas une Attaque.`);
   }
 
@@ -407,6 +551,13 @@ class Game {
       h.turnActions--;
       this.say('play', `${h.name} utilise une ${ITEMS.potion.name} sur ${t.name}.`);
       this.healHero(t, POTION_HEAL);
+    } else if (item === 'charm') {
+      // Porte-bonheur : joue la carte du dessus de la pioche ; ses éclairs sont ignorés.
+      if (!this.items.charm) throw new Error('Le Porte-bonheur n’est pas encore débloqué.');
+      if (!this.refill(h)) throw new Error('Ta pioche est vide.');
+      h.turnActions--;
+      this.say('play', `${h.name} utilise le ${ITEMS.charm.name}.`);
+      this.playInstance(h, h.draw.pop(), [], { auto: true, noLightning: true });
     } else {
       throw new Error('Objet inconnu');
     }
@@ -426,7 +577,7 @@ class Game {
   }
 
   // Déjà-vu / Masque de clairvoyance : le joueur choisit la carte à jouer.
-  choose(playerId, uid, targets = []) {
+  choose(playerId, uid, targets = [], under = false) {
     const h = this.heroOf(playerId);
     const c = this.choice;
     if (!c || this.heroes[c.hero] !== h) throw new Error("Tu n'as pas de carte à choisir.");
@@ -443,9 +594,10 @@ class Game {
     if (c.from === 'dejavu') {
       if (inst.uid !== TOP_OF_DRAW) h.discard = h.discard.filter((x) => x !== inst);
     } else {
-      // Masque : les cartes non choisies retournent sur la pioche, dans le même ordre.
+      // Masque : les cartes non choisies retournent sur la pioche (même ordre) ou dessous, au choix.
       const rest = c.options.filter((o) => o !== inst);
-      h.draw.push(...rest.reverse());
+      if (under) h.draw.unshift(...rest);
+      else h.draw.push(...rest.reverse());
     }
     this.choice = null;
     this.playInstance(h, inst, targets || [], { exile: c.from === 'dejavu', auto: targets === null });
@@ -517,6 +669,7 @@ class Game {
           a.value = Math.max(0, a.value - v);
           if (a.value === 0 || e.clear) a.effects = {};
           this.say('protect', `Protection ${v} sur ${this.heroes[idx].name} : attaque ${before} → ${a.value}.`);
+          this.fx({ kind: 'protect', hero: me, target: idx, v });
           break;
         }
         case 'lightning':
@@ -602,6 +755,17 @@ class Game {
           if (ctx.auto) break;
           this.openChoice(h, e.from);
           break;
+        case 'breakCurse': {
+          // Brise-malédiction : une malédiction active d'un héros au choix part à la défausse.
+          const t = this.heroes[pick(e)];
+          const idx = t.curses.findIndex((id) => CURSES[id].kind === 'perm');
+          const k = idx >= 0 ? idx : t.curses.length - 1;
+          if (k < 0) { this.say('info', `${t.name} n'a aucune malédiction active.`); break; }
+          const [gone] = t.curses.splice(k, 1);
+          this.curseDiscard.push(gone);
+          this.say('heal', `« ${CURSES[gone].name} » est retirée de ${t.name}.`);
+          break;
+        }
       }
     }
     return usedMods;
@@ -632,6 +796,8 @@ class Game {
       this.boss.shields[dmgType] -= res.shield;
       rest = SHIELD_OVERFLOW ? v - res.shield : 0;
     }
+    const broke = res.shield > 0 && this.boss.shields[dmgType] === 0;
+    this.fx({ kind: 'hit', dmg: dmgType, hero: this.heroes.indexOf(h), v, shield: res.shield, life: Math.min(rest, this.boss.life), broke, support: !isAttack });
     res.life = this.hitBossLife(rest);
     const parts = [];
     if (res.shield) parts.push(`${res.shield} au bouclier${this.boss.shields[dmgType] === 0 ? ' (détruit !)' : ''}`);
@@ -646,6 +812,8 @@ class Game {
     const dealt = Math.min(n, this.boss.life);
     this.boss.life -= dealt;
     if (this.boss.life <= 0) {
+      // Certains boss se relèvent (Chasseuse d'âmes : Résurrection).
+      if (this.def.onZero && this.def.onZero(this)) return dealt;
       this.end('win', `${this.def.name} est vaincu !`);
       return dealt;
     }
@@ -679,6 +847,8 @@ class Game {
       phase: this.phase,
       phaseLabel: PHASES[this.phase],
       awaitingStarter: this.awaitingStarter,
+      starterVotes: this.heroes.map((h, i) => Object.values(this.starterVotes || {}).filter((v) => v === i).length),
+      myVote: this.starterVotes && playerId in this.starterVotes ? this.starterVotes[playerId] : null,
       current: this.current,
       result: this.result,
       difficulty: this.diff.label,
@@ -708,8 +878,11 @@ class Game {
           cls: h.cls,
           hp: h.hp,
           maxHp: h.maxHp,
-          handLimit: h.handLimit,
+          handLimit: this.limitOf(h),
           poison: h.poison,
+          curses: h.curses.map((id) => ({ id, name: CURSES[id].name, text: CURSES[id].text, kind: CURSES[id].kind })),
+          pendingCurses: h.pendingCurses.length,
+          randomPlay: this.hasCurse(h, 'random'),
           turnsLeft: h.turnsLeft,
           turnActions: h.turnActions,
           bonusTurn: h.bonusTurn,
@@ -726,6 +899,7 @@ class Game {
         };
       }),
       log: this.log.slice(-80),
+      events: this.events.slice(-20),
     };
   }
 }
