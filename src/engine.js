@@ -34,6 +34,23 @@ function shuffle(a) {
 // Effets pour lesquels le joueur choisit un héros (dans l'ordre de la carte).
 const needsTarget = (e) => (e.t === 'protect' || e.target === 'one') && !e.same;
 
+// Textes d'aide de l'appli officielle, affichés la première fois qu'un type de capacité apparaît (vidéo pAqJAM7xdE0).
+const ABILITY_HELP = {
+  reaction: 'Les capacités avec les crocs sont des réactions directes à vos actions. Si vous comprenez pourquoi le boss l’a utilisée, vous pourrez l’éviter à l’avenir.',
+  recurring: 'Les capacités avec un sablier se répètent à intervalle régulier.',
+  threshold: 'Les capacités avec un cœur brisé se déclenchent quand le boss passe sous un seuil de vie.',
+};
+
+const STATUS_LABEL = { poison: 'Poison', panic: 'Panique', paralysis: 'Paralysie' };
+
+// Titres des étapes affichées au centre de l'écran.
+const STEP_TITLES = {
+  planning: 'Phase 1 · Planification',
+  shield: 'Phase 2 · Boucliers',
+  attack: 'Phase 4 · Attaque du boss',
+  status: 'Phase 5 · États',
+};
+
 class Game {
   // opts.stars : progression de la campagne (★1 = Prince vaincu : butin ★1, Porte-bonheur, malédictions).
   // players[i].loot / .removed : cartes de butin ajoutées et cartes d'action retirées du paquet.
@@ -73,8 +90,11 @@ class Game {
         play: [],
         exiled: [],
         raven: null,
+        ravenKeep: false,
         nextMods: [],
         poison: 0,
+        panic: 0, // Panique (Dragon) : les cartes de la main sont jouées au hasard, 1 jeton retiré par carte
+        paralysis: 0, // Paralysie (Golem) : limite de main -1 par jeton (phase 7)
         turnsLeft: 0,
         turnActions: 0,
         bonusTurn: false,
@@ -94,12 +114,14 @@ class Game {
       enrageAt: Math.max(2, this.def.enrageRound + this.diff.enrage),
       thresholdsDone: [],
       toxic: null,
-      cursedShield: null,
+      cursedShields: [],
       antiBoss: 0,
       flags: {},
     };
     this.stars = opts.stars || 0;
-    this.items = this.def.items ? { backpack: true, potions: n, charm: this.stars >= 1 } : null;
+    this.items = this.def.items
+      ? { backpack: true, potions: n, charm: this.stars >= 1, medbag: this.stars >= 2, waterskin: this.stars >= 3, waterskins: this.stars >= 3 ? n : 0 }
+      : null;
     // Pioche de malédictions (après le Prince) : utilisée par les boss qui maudissent.
     this.curseDeck = this.def.curses ? shuffle([...CURSE_DECK_1]) : [];
     this.curseDiscard = [];
@@ -111,7 +133,13 @@ class Game {
     this.awaitingStarter = false;
     this.interrupts = []; // héros qui doivent agir immédiatement (Cor du chef, Poudre de champignon…)
     this.resumeStack = [];
-    this.choice = null; // choix de carte en cours (Déjà-vu, Masque de clairvoyance)
+    this.choice = null; // choix de carte en cours (Déjà-vu, Masque de clairvoyance, carte révélée à cibler)
+    // Étape affichée au centre et validée par « Continuer » (phases 1, 2, 4 et 5, comme l'appli officielle).
+    this.step = null;
+    this.stepSeq = 0;
+    this.logSeq = 0;
+    // Égalité pour une capacité qui vise « le héros qui a le plus de… » : les joueurs choisissent (livret p.9).
+    this.tie = null;
     this.discardReady = new Set();
     this.result = null;
     // Événements visuels (coups, protections) rejoués par les navigateurs, numérotés pour ne pas les rejouer deux fois.
@@ -121,13 +149,14 @@ class Game {
     this.say('info', `Le combat contre ${this.def.name} commence (${this.diff.label}) !`);
     this.quote(0);
     for (const h of this.heroes) this.drawCards(h, h.handLimit);
+    if (this.def.onStart) this.def.onStart(this);
     this.startRound();
   }
 
   // ---------- Outils pour les boss ----------
 
   say(k, m) {
-    this.log.push({ k, m, r: this.round });
+    this.log.push({ k, m, r: this.round, n: ++this.logSeq });
     if (this.log.length > 200) this.log.shift();
   }
 
@@ -141,24 +170,30 @@ class Game {
     if (q) this.say('quote', `${this.def.name} : « ${q} »`);
   }
 
-  // Annonce une capacité du boss. Renvoie false si elle est empêchée (Anti-Boss-3000).
+  // Annonce une capacité du boss. Renvoie false si elle est empêchée : l'appelant n'applique alors pas l'effet.
+  // Anti-Boss-3000 (livret p.11) : « la prochaine fois que le boss utilise une capacité, elle est complètement empêchée ».
   ability(kind, name, text) {
-    if (kind === 'recurring' && this.boss.antiBoss > 0) {
+    if (this.boss.antiBoss > 0) {
       this.boss.antiBoss--;
-      this.say('protect', '🤖 Anti-Boss-3000 empêche une capacité du boss !');
+      this.say('protect', `🤖 Anti-Boss-3000 empêche « ${name} » !`);
       return false;
     }
+    const firstOfKind = !this.discovered.some((a) => a.kind === kind);
     if (!this.discovered.some((a) => a.name === name)) this.discovered.push({ kind, name, text });
     this.say(`ab-${kind}`, `${name} : ${text}`);
+    // Comme l'appli officielle : un texte d'aide la première fois qu'un type de capacité apparaît.
+    if (firstOfKind && ABILITY_HELP[kind]) this.say('tip', ABILITY_HELP[kind]);
     this.fx({ kind: 'ability', abKind: kind, name });
     return true;
   }
 
-  // Malédiction du corbeau : bloque l'effet d'une capacité ⌛ contre ce héros.
+  // Malédiction du corbeau : le héros peut la défausser pour ignorer l'effet d'une capacité du boss sur lui.
+  // C'est un choix (livret p.11) : le joueur peut la « garder » pour une capacité plus dangereuse.
   wards(h) {
-    if (!h.raven) return false;
+    if (!h.raven || h.ravenKeep) return false;
     h.discard.push(h.raven);
     h.raven = null;
+    h.ravenKeep = false;
     this.say('protect', `🐦‍⬛ ${h.name} défausse la Malédiction du corbeau et ignore l'effet.`);
     return true;
   }
@@ -167,6 +202,32 @@ class Game {
     let best = 0;
     this.heroes.forEach((h, i) => { if (h[field] > this.heroes[best][field]) best = i; });
     return best;
+  }
+
+  // Capacité qui vise « le héros qui a le plus de … » : en cas d'égalité, les joueurs choisissent (livret p.9).
+  pickHero(field, label, apply) {
+    const max = Math.max(...this.heroes.map((h) => h[field]));
+    const tied = this.heroes.map((h, i) => (h[field] === max ? i : -1)).filter((i) => i >= 0);
+    if (tied.length === 1) return apply(this.heroes[tied[0]]);
+    this.tie = { candidates: tied, label, apply };
+    this.say('info', `Égalité (${tied.map((i) => this.heroes[i].name).join(', ')}) : choisissez qui subit « ${label} ».`);
+  }
+
+  resolveTie(playerId, idx) {
+    this.heroOf(playerId);
+    const t = this.tie;
+    if (!t) throw new Error("Il n'y a pas d'égalité à trancher.");
+    if (!t.candidates.includes(idx)) throw new Error('Ce héros ne fait pas partie des ex æquo.');
+    this.tie = null;
+    this.say('info', `${this.heroes[idx].name} subit « ${t.label} ».`);
+    t.apply(this.heroes[idx]);
+  }
+
+  // Le joueur garde sa Malédiction du corbeau (au lieu de la défausser à la prochaine capacité qui le vise).
+  setRavenKeep(playerId, keep) {
+    const h = this.heroOf(playerId);
+    if (!h.raven) throw new Error("Tu n'as pas de Malédiction du corbeau posée.");
+    h.ravenKeep = !!keep;
   }
 
   hurtHero(h, n, why) {
@@ -190,6 +251,43 @@ class Game {
     this.say('poison', `${h.name} reçoit ${n} Poison (total ${h.poison}).`);
   }
 
+  // Jetons d'état autres que le Poison : 'panic' (Panique) ou 'paralysis' (Paralysie).
+  addStatus(h, kind, n) {
+    if (n <= 0) return;
+    h[kind] += n;
+    this.say(kind, `${h.name} reçoit ${n} ${STATUS_LABEL[kind]} (total ${h[kind]}).`);
+  }
+
+  // Retire n jetons d'état d'un héros : le Poison d'abord (il blesse), puis la Paralysie, puis la Panique.
+  removeStatus(h, n) {
+    const gone = [];
+    for (const k of ['poison', 'paralysis', 'panic']) {
+      const m = Math.min(n, h[k]);
+      if (m > 0) { h[k] -= m; n -= m; gone.push(`${m} ${STATUS_LABEL[k]}`); }
+    }
+    this.say('heal', gone.length ? `${h.name} retire ${gone.join(', ')}.` : `${h.name} n'a aucun jeton d'état.`);
+  }
+
+  // Le boss frappe avec ses attaques prévues (phase 4, ou en pleine phase d'actions pour le Dragon).
+  // Renvoie le nombre de héros blessés.
+  applyAttacks() {
+    let hurt = 0;
+    this.heroes.forEach((h, i) => {
+      const a = this.attacks[i];
+      if (this.result || !a || a.value <= 0) return;
+      this.fx({ kind: 'bossAttack', target: i, v: a.value, poison: a.effects.poison || 0 });
+      this.hurtHero(h, a.value, 'attaque du boss');
+      hurt++;
+      if (this.result) return;
+      if (a.effects.poison) this.addPoison(h, a.effects.poison);
+      if (a.effects.panic) this.addStatus(h, 'panic', a.effects.panic);
+      if (a.effects.paralysis) this.addStatus(h, 'paralysis', a.effects.paralysis);
+      if (a.effects.curse) this.curse(h, 'attaque du boss');
+      for (const id of h.curses) if (CURSES[id].hitPoison) this.addPoison(h, CURSES[id].hitPoison);
+    });
+    return hurt;
+  }
+
   addShields(s) {
     for (const t of Object.keys(s)) this.boss.shields[t] += s[t];
   }
@@ -202,7 +300,12 @@ class Game {
 
   // Limite de main effective (réduite par les malédictions permanentes).
   limitOf(h) {
-    return Math.max(0, h.handLimit - h.curses.reduce((n, id) => n + (CURSES[id].handMinus || 0), 0));
+    return Math.max(0, h.handLimit - h.paralysis - h.curses.reduce((n, id) => n + (CURSES[id].handMinus || 0), 0));
+  }
+
+  // Cartes de la main jouées au hasard : Malédiction du chaos ou jetons Panique.
+  playsAtRandom(h) {
+    return h.panic > 0 || this.hasCurse(h, 'random');
   }
 
   hasCurse(h, flag) {
@@ -260,15 +363,41 @@ class Game {
     let done = 0;
     for (let k = 0; k < n && h.draw.length; k++) { h.discard.push(h.draw.pop()); done++; }
     if (done) this.say('info', `${h.name} défausse les ${done} carte(s) du dessus de sa pioche.`);
+    this.refill(h);
   }
 
   // ---------- Déroulement d'un tour ----------
+
+  // Met le jeu en pause sur une étape (texte au centre) jusqu'à ce qu'un joueur clique « Continuer ».
+  // since : numéro du dernier message de la chronique avant l'étape ; les messages suivants la décrivent.
+  pause(kind, since) {
+    if (this.result) return;
+    if (this.logSeq === since) {
+      const quiet = { attack: 'Toutes les attaques du boss ont été bloquées !', status: 'Aucun effet d’état ce tour.' }[kind];
+      if (quiet) this.say('info', quiet);
+    }
+    this.step = { id: ++this.stepSeq, kind, since };
+  }
+
+  // Un joueur valide l'étape affichée. stepId évite qu'un double clic saute deux étapes.
+  continueStep(playerId, stepId) {
+    this.heroOf(playerId);
+    if (!this.step || this.step.id !== stepId) return;
+    if (this.tie) throw new Error("Choisissez d'abord le héros visé.");
+    const kind = this.step.kind;
+    this.step = null;
+    if (kind === 'planning') this.shieldPhase();
+    else if (kind === 'shield') this.actionPhase();
+    else if (kind === 'attack') this.statusPhase();
+    else if (kind === 'status') this.discardPhase();
+  }
 
   startRound() {
     if (this.result) return;
     this.round++;
     this.typesThisRound.clear();
     this.say('round', `— Tour ${this.round} —`);
+    const since = this.logSeq;
     this.quote(this.round);
 
     // Phase 1 : planification
@@ -280,18 +409,33 @@ class Game {
       if (this.result) return;
     }
     this.attacks = this.def.planAttacks(this).map((a) => ({ value: Math.max(0, a.value), effects: { ...a.effects } }));
+    const attacks = this.heroes.map((h, i) => {
+      const a = this.attacks[i];
+      const extra = [a.effects.poison ? `${a.effects.poison} Poison` : '', a.effects.panic ? `${a.effects.panic} Panique` : '',
+        a.effects.paralysis ? `${a.effects.paralysis} Paralysie` : '', a.effects.curse ? 'une malédiction' : ''].filter(Boolean).join(' + ');
+      return `${h.name} ${a.value}${extra ? ` + ${extra}` : ''}`;
+    });
+    this.say('plan', `Le boss prépare ses attaques : ${attacks.join(' · ')}.`);
+    this.pause('planning', since);
+  }
 
-    // Phase 2 : boucliers
+  // Phase 2 : boucliers (sautée quand le boss n'en a pas, comme au tour 1 de l'entraînement).
+  shieldPhase() {
+    const since = this.logSeq;
     this.phase = 'shield';
     this.boss.toxic = null;
-    this.boss.cursedShield = null;
+    this.boss.cursedShields = [];
     const s = this.def.shields ? this.def.shields(this) : null;
-    if (s) {
-      this.boss.shields = { melee: 0, ranged: 0, magic: 0, ...s };
-      this.say('shield', `Le boss reçoit ses boucliers : ⚔️ ${this.boss.shields.melee}  🏹 ${this.boss.shields.ranged}  ✨ ${this.boss.shields.magic}`);
-    }
+    if (!s) return this.actionPhase();
+    this.boss.shields = { melee: 0, ranged: 0, magic: 0, ...s };
+    this.say('shield', `Le boss reçoit ses boucliers : ⚔️ ${this.boss.shields.melee}  🏹 ${this.boss.shields.ranged}  ✨ ${this.boss.shields.magic}`);
+    if (this.boss.toxic) this.say('shield', `Bouclier venimeux : ${DMG_LABEL[this.boss.toxic]}.`);
+    if (this.boss.cursedShields.length) this.say('shield', `Boucliers maudits : ${this.boss.cursedShields.map((t) => DMG_LABEL[t]).join(' et ')}.`);
+    this.pause('shield', since);
+  }
 
-    // Phase 3 : actions
+  // Phase 3 : actions
+  actionPhase() {
     this.phase = 'action';
     for (const h of this.heroes) {
       h.turnsLeft = ACTIONS_PER_ROUND;
@@ -382,22 +526,22 @@ class Game {
       h.curses = keep;
     }
 
-    // Phase 4 : attaque du boss
-    this.phase = 'attack';
-    this.heroes.forEach((h, i) => {
-      const a = this.attacks[i];
-      if (!a || a.value <= 0) return;
-      this.fx({ kind: 'bossAttack', target: i, v: a.value, poison: a.effects.poison || 0 });
-      this.hurtHero(h, a.value, 'attaque du boss');
-      if (this.result) return;
-      if (a.effects.poison) this.addPoison(h, a.effects.poison);
-      if (a.effects.curse) this.curse(h, 'attaque du boss');
-      for (const id of h.curses) if (CURSES[id].hitPoison) this.addPoison(h, CURSES[id].hitPoison);
-      if (this.def.onAttackHit) this.def.onAttackHit(this, h, a.value);
-    });
-    if (this.result) return;
+    this.attackPhase();
+  }
 
-    // Phase 5 : états
+  // Phase 4 : attaque du boss
+  attackPhase() {
+    const since = this.logSeq;
+    this.phase = 'attack';
+    const hurt = this.applyAttacks();
+    if (this.result) return;
+    if (this.def.onAttackDone) this.def.onAttackDone(this, hurt);
+    this.pause('attack', since);
+  }
+
+  // Phase 5 : états
+  statusPhase() {
+    const since = this.logSeq;
     this.phase = 'status';
     for (const h of this.heroes) {
       if (h.poison > 0) this.hurtHero(h, h.poison, 'poison');
@@ -409,9 +553,11 @@ class Game {
     }
     if (this.result) return;
     if (this.def.onStatus) this.def.onStatus(this);
-    if (this.result) return;
+    this.pause('status', since);
+  }
 
-    // Phase 6 : défausse
+  // Phase 6 : défausse
+  discardPhase() {
     this.phase = 'discard';
     for (const h of this.heroes) {
       h.discard.push(...h.play);
@@ -452,11 +598,47 @@ class Game {
     return true;
   }
 
+  // Prend la carte du dessus de la pioche. Livret p.8 : dès que la pioche est vide, on mélange
+  // « immédiatement » la défausse (sans les cartes de la zone de jeu) pour la reformer.
+  takeTop(h) {
+    if (!this.refill(h)) return null;
+    const c = h.draw.pop();
+    this.refill(h);
+    return c;
+  }
+
   drawCards(h, n) {
     for (let k = 0; k < n; k++) {
-      if (!this.refill(h)) return;
-      h.hand.push(h.draw.pop());
+      const c = this.takeTop(h);
+      if (!c) return;
+      h.hand.push(c);
     }
+  }
+
+  // Carte jouée depuis le dessus de la pioche (Porte-bonheur, Improvisation, Déjà-vu) :
+  // si elle demande de choisir un héros, son joueur choisit la cible avant qu'elle soit résolue.
+  // then : cartes d'Improvisation encore à retourner ensuite.
+  playRevealed(h, inst, opts = {}, then = 0) {
+    const card = CARDS[inst.id];
+    const me = this.heroes.indexOf(h);
+    // Acte chevaleresque sans aucune attaque à reprendre : la carte est jouée sans effet.
+    const canRedirect = !card.effects.some((e) => e.t === 'redirect') || this.attacks.some((a, i) => i !== me && a.value > 0);
+    if (card.effects.some(needsTarget) && canRedirect) {
+      this.choice = { hero: this.heroes.indexOf(h), from: 'reveal', options: [inst], allowTop: false, opts, then };
+      this.say('info', `${h.name} révèle « ${CARDS[inst.id].name} » et choisit sa cible.`);
+      return true;
+    }
+    this.playInstance(h, inst, [], { ...opts, auto: true });
+    if (then > 0) this.improvise(h, then);
+    return false;
+  }
+
+  // Improvisation : le héros joue les n cartes du dessus de sa pioche, l'une après l'autre.
+  improvise(t, n) {
+    if (n <= 0 || this.result) return;
+    const inst = this.takeTop(t);
+    if (!inst) return;
+    this.playRevealed(t, inst, {}, n - 1);
   }
 
   // ---------- Actions des joueurs ----------
@@ -482,10 +664,10 @@ class Game {
     let pos = h.hand.findIndex((c) => c.uid === uid);
     if (pos < 0) throw new Error("Cette carte n'est pas dans ta main.");
     // Malédiction du chaos : la carte est tirée au hasard dans la main (cibles choisies automatiquement).
-    if (this.hasCurse(h, 'random')) {
+    if (this.playsAtRandom(h)) {
       pos = Math.floor(Math.random() * h.hand.length);
       targets = [];
-      this.say('curse', `Malédiction du chaos : ${h.name} joue une carte au hasard.`);
+      this.say(h.panic > 0 ? 'panic' : 'curse', `${h.panic > 0 ? 'Panique' : 'Malédiction du chaos'} : ${h.name} joue une carte au hasard.`);
     }
     const inst = h.hand[pos];
     if (targets.length) this.validateTargets(h, CARDS[inst.id], targets);
@@ -500,8 +682,11 @@ class Game {
     }
     h.hand = h.hand.filter((c) => c !== inst);
     h.turnActions--;
+    const panicked = h.panic > 0;
     this.playInstance(h, inst, targets);
+    if (panicked && h.panic > 0) { h.panic--; this.say('panic', `${h.name} défausse un jeton Panique (reste ${h.panic}).`); }
     if (!this.result) this.applyPlayCurses(h, CARDS[inst.id]);
+    this.playerActed();
     this.afterAction();
   }
 
@@ -551,16 +736,32 @@ class Game {
       h.turnActions--;
       this.say('play', `${h.name} utilise une ${ITEMS.potion.name} sur ${t.name}.`);
       this.healHero(t, POTION_HEAL);
+    } else if (item === 'medbag') {
+      if (!this.items.medbag) throw new Error('Le Sac de remèdes n’est pas encore débloqué.');
+      const t = this.heroes[target];
+      if (!t) throw new Error('Choisis un héros.');
+      h.turnActions--;
+      this.say('play', `${h.name} utilise le ${ITEMS.medbag.name} sur ${t.name}.`);
+      this.removeStatus(t, 2);
+    } else if (item === 'waterskin') {
+      if (!(this.items.waterskins > 0)) throw new Error('Plus de gorgées dans l’Outre !');
+      const t = this.heroes[target];
+      if (!t) throw new Error('Choisis un héros à soigner.');
+      this.items.waterskins--;
+      h.turnActions--;
+      this.say('play', `${h.name} fait boire l’${ITEMS.waterskin.name} à ${t.name}.`);
+      this.healHero(t, 3);
     } else if (item === 'charm') {
       // Porte-bonheur : joue la carte du dessus de la pioche ; ses éclairs sont ignorés.
       if (!this.items.charm) throw new Error('Le Porte-bonheur n’est pas encore débloqué.');
       if (!this.refill(h)) throw new Error('Ta pioche est vide.');
       h.turnActions--;
       this.say('play', `${h.name} utilise le ${ITEMS.charm.name}.`);
-      this.playInstance(h, h.draw.pop(), [], { auto: true, noLightning: true });
+      this.playRevealed(h, this.takeTop(h), { noLightning: true });
     } else {
       throw new Error('Objet inconnu');
     }
+    this.playerActed();
     this.afterAction();
   }
 
@@ -569,6 +770,11 @@ class Game {
     this.say('info', `${h.name} passe.`);
     h.turnActions = 0;
     this.afterAction();
+  }
+
+  // Après chaque action d'un joueur (pour les boss qui comptent les actions, comme le Dragon de l'éther).
+  playerActed() {
+    if (!this.result && this.phase === 'action' && this.def.onAction) this.def.onAction(this);
   }
 
   giveUp(playerId) {
@@ -581,26 +787,28 @@ class Game {
     const h = this.heroOf(playerId);
     const c = this.choice;
     if (!c || this.heroes[c.hero] !== h) throw new Error("Tu n'as pas de carte à choisir.");
-    let inst;
     if (uid === TOP_OF_DRAW && c.allowTop) {
+      // Déjà-vu : la carte du dessus de la pioche est révélée ; on choisit sa cible si besoin.
       if (!this.refill(h)) throw new Error('Ta pioche est vide.');
-      inst = h.draw.pop();
-      targets = null;
-    } else {
-      inst = c.options.find((o) => o.uid === uid);
-      if (!inst) throw new Error('Carte inconnue');
-      this.validateTargets(h, CARDS[inst.id], targets);
+      this.choice = null;
+      this.playRevealed(h, this.takeTop(h), { exile: true });
+      return this.afterAction();
     }
+    const inst = c.options.find((o) => o.uid === uid);
+    if (!inst) throw new Error('Carte inconnue');
+    this.validateTargets(h, CARDS[inst.id], targets);
     if (c.from === 'dejavu') {
-      if (inst.uid !== TOP_OF_DRAW) h.discard = h.discard.filter((x) => x !== inst);
-    } else {
+      h.discard = h.discard.filter((x) => x !== inst);
+    } else if (c.from === 'mask') {
       // Masque : les cartes non choisies retournent sur la pioche (même ordre) ou dessous, au choix.
       const rest = c.options.filter((o) => o !== inst);
       if (under) h.draw.unshift(...rest);
       else h.draw.push(...rest.reverse());
     }
     this.choice = null;
-    this.playInstance(h, inst, targets || [], { exile: c.from === 'dejavu', auto: targets === null });
+    const opts = c.from === 'reveal' ? c.opts : { exile: c.from === 'dejavu' };
+    this.playInstance(h, inst, targets || [], opts);
+    if (c.from === 'reveal' && c.then > 0) this.improvise(h, c.then);
     this.afterAction();
   }
 
@@ -695,12 +903,41 @@ class Game {
           break;
         }
         case 'cleanse':
-          for (const t of targetsOf(e)) {
-            const n = Math.min(v, t.poison);
-            t.poison -= n;
-            this.say('heal', `${t.name} retire ${n} jeton(s) Poison.`);
-          }
+          for (const t of targetsOf(e)) this.removeStatus(t, v);
           break;
+        case 'shieldDown': {
+          // Le plus faible bouclier encore debout perd v points, sans toucher la vie du boss.
+          const types = ['melee', 'ranged', 'magic'].filter((x) => this.boss.shields[x] > 0);
+          if (!types.length) { this.say('info', 'Le boss n’a plus de bouclier.'); break; }
+          const t = types.reduce((b, x) => (this.boss.shields[x] < this.boss.shields[b] ? x : b));
+          const n = Math.min(v, this.boss.shields[t]);
+          this.boss.shields[t] -= n;
+          const broke = this.boss.shields[t] === 0;
+          this.say('hit', `Le bouclier ${DMG_LABEL[t]} perd ${n}${broke ? ' et se brise !' : '.'}`);
+          this.fx({ kind: 'hit', dmg: t, hero: me, v: n, shield: n, life: 0, broke, support: true });
+          if (broke && e.poisonIfBroken) { this.boss.poison += e.poisonIfBroken; this.say('poison', `Le boss reçoit ${e.poisonIfBroken} Poison.`); }
+          if (broke && !e.silent && this.def.onShieldBroken) this.def.onShieldBroken(this, h, t);
+          break;
+        }
+        case 'drawDiscard':
+          for (const t of this.heroes) {
+            this.drawCards(t, e.draw);
+            for (let k = 0; k < e.discard && t.hand.length; k++) {
+              const [c] = t.hand.splice(Math.floor(Math.random() * t.hand.length), 1);
+              t.discard.push(c);
+            }
+          }
+          this.say('info', `Chaque héros pioche ${e.draw} cartes et en défausse ${e.discard}.`);
+          break;
+        case 'pestbote': {
+          // Messager de la peste : une autre carte de la main retourne sur la pioche (au hasard), puis le boss est empoisonné.
+          if (!h.hand.length) { this.say('info', 'Aucune autre carte en main : le Messager de la peste est sans effet.'); break; }
+          const [c] = h.hand.splice(Math.floor(Math.random() * h.hand.length), 1);
+          h.draw.push(c);
+          this.boss.poison += v;
+          this.say('poison', `${h.name} remet « ${CARDS[c.id].name} » sur sa pioche ; le boss reçoit ${v} Poison.`);
+          break;
+        }
         case 'grant': {
           const idx = pick(e);
           if (idx === this.current) this.heroes[idx].turnActions++;
@@ -742,15 +979,9 @@ class Game {
           this.boss.antiBoss++;
           this.say('protect', '🤖 Anti-Boss-3000 est prêt à empêcher la prochaine capacité ⌛ du boss.');
           break;
-        case 'improvise': {
-          const t = this.heroes[pick(e)];
-          for (let k = 0; k < v && !this.result; k++) {
-            if (!this.refill(t)) break;
-            const inst = t.draw.pop();
-            this.playInstance(t, inst, [], { auto: true });
-          }
+        case 'improvise':
+          this.improvise(this.heroes[pick(e)], v);
           break;
-        }
         case 'choose':
           if (ctx.auto) break;
           this.openChoice(h, e.from);
@@ -776,20 +1007,31 @@ class Game {
     if (from === 'dejavu') {
       if (h.discard.length === 0) {
         this.say('info', 'Défausse vide : Déjà-vu joue la carte du dessus de la pioche.');
-        if (!this.refill(h)) return;
-        return this.playInstance(h, h.draw.pop(), [], { exile: true, auto: true });
+        const top = this.takeTop(h);
+        if (top) this.playRevealed(h, top, { exile: true });
+        return;
       }
       this.choice = { hero, from, options: [...h.discard], allowTop: true };
     } else {
       const options = [];
-      for (let k = 0; k < 3 && this.refill(h); k++) options.push(h.draw.pop());
+      for (let k = 0; k < 3; k++) {
+        const c = this.takeTop(h);
+        if (!c) break;
+        options.push(c);
+      }
       if (!options.length) return;
       this.choice = { hero, from, options, allowTop: false };
     }
   }
 
   damageBoss(h, dmgType, v, isAttack) {
-    const res = { shield: 0, life: 0 };
+    const res = { shield: 0, life: 0, broke: false };
+    // Certains boss ne peuvent pas être touchés par un type de dégâts (Dragon de l'éther en vol : pas de mêlée).
+    const dodge = this.def.dodges && this.def.dodges(this, dmgType);
+    if (dodge) {
+      this.say('info', dodge);
+      return res;
+    }
     let rest = v;
     if (this.boss.shields[dmgType] > 0) {
       res.shield = Math.min(v, this.boss.shields[dmgType]);
@@ -797,6 +1039,7 @@ class Game {
       rest = SHIELD_OVERFLOW ? v - res.shield : 0;
     }
     const broke = res.shield > 0 && this.boss.shields[dmgType] === 0;
+    res.broke = broke;
     this.fx({ kind: 'hit', dmg: dmgType, hero: this.heroes.indexOf(h), v, shield: res.shield, life: Math.min(rest, this.boss.life), broke, support: !isAttack });
     res.life = this.hitBossLife(rest);
     const parts = [];
@@ -804,6 +1047,7 @@ class Game {
     if (res.life) parts.push(`${res.life} à la vie`);
     this.say('hit', `${v} dégâts ${DMG_LABEL[dmgType]} : ${parts.join(', ') || 'aucun effet'}.`);
     if (!this.result && this.def.onHit) this.def.onHit(this, h, dmgType, res, isAttack, v);
+    if (!this.result && broke && this.def.onShieldBroken) this.def.onShieldBroken(this, h, dmgType);
     return res;
   }
 
@@ -818,7 +1062,8 @@ class Game {
       return dealt;
     }
     for (const [i, t] of (this.def.thresholds || []).entries()) {
-      if (!this.boss.thresholdsDone.includes(i) && this.boss.life <= this.boss.maxLife * t.at) {
+      const limit = t.life !== undefined ? t.life : this.boss.maxLife * t.at;
+      if (!this.boss.thresholdsDone.includes(i) && this.boss.life <= limit) {
         this.boss.thresholdsDone.push(i);
         t.run(this);
         if (this.result) break;
@@ -833,7 +1078,10 @@ class Game {
     this.phase = 'over';
     this.current = null;
     if (this.choice && this.choice.from === 'mask') this.heroes[this.choice.hero].draw.push(...this.choice.options);
+    if (this.choice && this.choice.from === 'reveal') this.heroes[this.choice.hero].discard.push(...this.choice.options);
     this.choice = null;
+    this.step = null;
+    this.tie = null;
     this.say(result === 'win' ? 'win' : 'lose', msg);
     this.quote(result);
   }
@@ -847,6 +1095,13 @@ class Game {
       phase: this.phase,
       phaseLabel: PHASES[this.phase],
       awaitingStarter: this.awaitingStarter,
+      step: this.step && {
+        id: this.step.id,
+        kind: this.step.kind,
+        title: STEP_TITLES[this.step.kind],
+        lines: this.log.filter((l) => l.n > this.step.since).map((l) => ({ k: l.k, m: l.m })),
+      },
+      tie: this.tie && { candidates: this.tie.candidates, label: this.tie.label },
       starterVotes: this.heroes.map((h, i) => Object.values(this.starterVotes || {}).filter((v) => v === i).length),
       myVote: this.starterVotes && playerId in this.starterVotes ? this.starterVotes[playerId] : null,
       current: this.current,
@@ -859,6 +1114,7 @@ class Game {
         legend: this.def.legend,
         ...this.boss,
       },
+      gauges: this.def.gauges ? this.def.gauges(this) : [],
       discovered: this.discovered,
       attacks: this.attacks,
       typesThisRound: [...this.typesThisRound],
@@ -880,9 +1136,11 @@ class Game {
           maxHp: h.maxHp,
           handLimit: this.limitOf(h),
           poison: h.poison,
+          panic: h.panic,
+          paralysis: h.paralysis,
           curses: h.curses.map((id) => ({ id, name: CURSES[id].name, text: CURSES[id].text, kind: CURSES[id].kind })),
           pendingCurses: h.pendingCurses.length,
-          randomPlay: this.hasCurse(h, 'random'),
+          randomPlay: this.playsAtRandom(h),
           turnsLeft: h.turnsLeft,
           turnActions: h.turnActions,
           bonusTurn: h.bonusTurn,
@@ -891,6 +1149,7 @@ class Game {
           discardCount: h.discard.length,
           exiledCount: h.exiled.length,
           raven: !!h.raven,
+          ravenKeep: h.ravenKeep,
           nextMods: h.nextMods.length,
           play: h.play,
           ready: this.discardReady.has(h.playerId),

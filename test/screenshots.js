@@ -10,7 +10,7 @@ const EDGE = [
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
 ].find((p) => fs.existsSync(p));
 const OUT = process.argv[2] || path.join(__dirname, '..', 'screenshots');
-const URL = 'http://localhost:3000';
+const URL = process.env.BF_URL || 'http://localhost:3000';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
@@ -43,25 +43,27 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await c.click('[data-action="join"]');
   await c.waitForSelector('.seat-slot');
 
-  // Chacun clique sur une place vide, choisit héros et classe, puis s'assoit.
+  // Chacun est assis en arrivant : il choisit héros et classe, puis peut changer de place.
   const sitDown = async (page, seat, hero, cls) => {
-    await page.click(`[data-action="seat"][data-seat="${seat}"]`); await wait(300);
     await page.click(`[data-kind="hero"][data-id="${hero}"]`); await wait(300);
     await page.click(`[data-kind="cls"][data-id="${cls}"]`); await wait(300);
-    await page.click('[data-action="sit"]'); await wait(400);
+    await page.click('[data-action="close-modal"]'); await wait(400);
+    if (seat !== undefined) { await page.evaluate((s) => document.querySelector(`[data-action="seat"][data-seat="${s}"]`)?.click(), seat); await wait(300); }
   };
-  await sitDown(a, 0, 'dwarf', 'warrior');
-  await b.click('[data-action="seat"][data-seat="3"]'); await wait(300);
+  await sitDown(a, undefined, 'dwarf', 'warrior');
   await b.click('[data-kind="hero"][data-id="elf"]'); await wait(300);
   await b.screenshot({ path: path.join(OUT, '2b-selection.png') });
   await b.click('[data-kind="cls"][data-id="rogue"]'); await wait(300);
-  await b.click('[data-action="sit"]'); await wait(400);
+  await b.click('[data-action="close-modal"]'); await wait(400);
+  await b.evaluate(() => document.querySelector('[data-action="seat"][data-seat="3"]')?.click()); await wait(300);
   await sitDown(c, 6, 'troll', 'mage');
   await wait(400);
   await a.screenshot({ path: path.join(OUT, '2-salon.png'), fullPage: true });
 
   await a.click('[data-action="start"]');
   await a.waitForSelector('.crests');
+  // Phases 1 et 2 affichées au centre : on clique « Continuer » jusqu'au vote.
+  for (let k = 0; k < 3 && await a.$('[data-action="continue"]'); k++) { await a.click('[data-action="continue"]'); await wait(400); }
   // Vote pour qui commence : capture pendant le vote, puis les autres votent.
   await a.click('[data-action="vote"][data-idx="1"]'); await wait(400);
   await a.setViewport({ width: 1366, height: 768 }); await wait(300);

@@ -43,69 +43,69 @@ const IF = (min, then) => ({ t: 'ifHp', min, then });
 
 const CARDS = {
   // ===== Troll de la jungle =====
-  throwing_axe:     { name: 'Hache de lancer',          en: 'Throwing Axe',          effects: [A('ranged', 2)], conf: 'probable' },
-  grandpas_belt:    { name: 'Ceinture de grand-père',   en: "Grandpa's Belt",        effects: [P(3)], conf: 'probable' },
+  throwing_axe:     { name: 'Hache de lancer',          en: 'Throwing Axe',          effects: [A('ranged', 2)], conf: 'sûr' },
+  grandpas_belt:    { name: 'La Ceinture de Grand-père',   en: "Grandpa's Belt",        effects: [P(3)], conf: 'sûr' },
   toad_smoothie:    { name: 'Smoothie de crapaud',      en: 'Toad Smoothie',         effects: [H(3, 'one'), D(2, 'one', { same: true })], conf: 'sûr' },
-  spirit_spear:     { name: 'Lance spirituelle',        en: 'Spirit Spear',          effects: [A('magic', 3)], conf: 'probable' },
-  horn_chieftain:   { name: 'Corne du chef',           en: 'Horn of the Chieftain', effects: [D(3, 'one'), G({ same: true })], conf: 'sûr' },
+  spirit_spear:     { name: 'Lance spirituelle',        en: 'Spirit Spear',          effects: [A('magic', 3)], conf: 'sûr' },
+  horn_chieftain:   { name: 'Corne du Chef',           en: 'Horn of the Chieftain', effects: [D(3, 'one'), G({ same: true })], conf: 'sûr' },
   ancestral_stone:  { name: 'Pierre ancestrale',        en: 'Ancestral Stone',       effects: [S('magic', 4)], conf: 'sûr' },
   // avancées
   bone_club:        { name: "Matraque d'os",            en: 'Bone Club',             effects: [A('melee', 4), IF(15, [D(2)])], conf: 'sûr', adv: true },
-  shoulder_ram:     { name: "Coup d'épaule",            en: 'Shoulder Ram',          effects: [S('melee', 3), IF(15, [H(3)])], conf: 'sûr', adv: true },
-  grandmas_helmet:  { name: 'Casque de grand-mère',     en: "Grandma's Helmet",      effects: [P(4), IF(15, [C(2, 'self')])], conf: 'sûr', adv: true },
+  shoulder_ram:     { name: 'Épaulette bélier',            en: 'Shoulder Ram',          effects: [S('melee', 3), IF(15, [H(3)])], conf: 'sûr', adv: true },
+  grandmas_helmet:  { name: 'Le Casque de Grand-mère',     en: "Grandma's Helmet",      effects: [P(4), IF(15, [C(2, 'self')])], conf: 'sûr', adv: true },
   // Vue en vidéo (Troll Mage) : « attaque de mêlée, force = manche en cours, puis rejouer ». Nom inconnu.
-  troll_round_blow: { name: 'Coup de manche',           en: '?',                     effects: [A('melee', 'round'), L], conf: 'probable', adv: true },
+  troll_round_blow: { name: 'Crac !',           en: '?',                     effects: [A('melee', 'round'), L], conf: 'sûr', adv: true },
 
   // ===== Halfelin des collines =====
-  blinky:           { name: 'Brillant',                 en: 'Blinky',                effects: [A('magic', 3)], conf: 'sûr' },
-  dent_maker:       { name: 'Cabosseur',                en: 'Dent Maker',            effects: [A('ranged', 3)], conf: 'sûr' },
+  blinky:           { name: 'Scintillance',                 en: 'Blinky',                effects: [A('magic', 3)], conf: 'sûr' },
+  dent_maker:       { name: 'Casse-dents',                en: 'Dent Maker',            effects: [A('ranged', 3)], conf: 'sûr' },
   ornate_dagger:    { name: 'Dague ornée',              en: 'Ornate Dagger',         effects: [A('melee', 2)], conf: 'sûr' },
-  whisper_cloak:    { name: 'Cape du murmure',          en: 'Whisper Cloak',         effects: [P(3)], conf: 'sûr' },
-  pebble_friends:   { name: 'Copains cailloux',         en: 'Pebble Friends',        effects: [S('ranged', 4)], conf: 'sûr' },
+  whisper_cloak:    { name: 'Cape des Murmures',          en: 'Whisper Cloak',         effects: [P(3)], conf: 'sûr' },
+  pebble_friends:   { name: 'Amis galets',         en: 'Pebble Friends',        effects: [S('ranged', 4)], conf: 'sûr' },
   // avancées (le paquet de chaque carte est donné par HEROES / CLASSES, recoupé dans les parties filmées)
-  magic_slingshot:  { name: 'Fronde magique',           en: 'Magic Slingshot',       effects: [A('ranged', 2), A('magic', 2)], conf: 'probable', adv: true },
-  lucky_brooch:     { name: 'Broche porte-bonheur',     en: 'Lucky Brooch',          effects: [P(2), L], conf: 'sûr', adv: true },
+  magic_slingshot:  { name: 'Fronde magique',           en: 'Magic Slingshot',       effects: [A('ranged', 2), A('magic', 2)], conf: 'sûr', adv: true },
+  lucky_brooch:     { name: 'Broche Porte-bonheur',     en: 'Lucky Brooch',          effects: [P(2), L], conf: 'sûr', adv: true },
   improvise:        { name: 'Improvisation',            en: 'Improvise',             effects: [{ t: 'improvise', v: 2, target: 'one' }], conf: 'sûr', adv: true },
-  snarl_root:       { name: 'Racine tordue',            en: 'Snarl Root',            effects: [H(3), L, L], conf: 'sûr', adv: true },
+  snarl_root:       { name: 'Herbes à pipe',            en: 'Snarl Root',            effects: [H(3), L, L], conf: 'sûr', adv: true },
   // Carte avancée du Guerrier : jouée en vidéo par des Guerriers de tous les héros.
-  rune_vengeance:   { name: 'Rune de vengeance',        en: 'Rune of Vengeance',     effects: [A('ranged', 'myAttack', { backlash: { min: 9, v: 4 } })], conf: 'sûr', adv: true },
+  rune_vengeance:   { name: 'Rune de Vengeance',        en: 'Rune of Vengeance',     effects: [A('ranged', 'myAttack', { backlash: { min: 9, v: 4 } })], conf: 'sûr', adv: true },
 
   // ===== Nain de cuivre =====
   rock_cleaver:     { name: 'Tranche-roche',            en: 'Rock Cleaver',          effects: [A('melee', 4)], conf: 'sûr' },
   tunnel_blaster:   { name: 'Souffleur de tunnel',      en: 'Tunnel Blaster',        effects: [A('ranged', 2)], conf: 'sûr' },
   chest_piece:      { name: 'Plastron',                 en: 'Chest Piece',           effects: [P(4)], conf: 'sûr' },
-  brass_knuckles:   { name: 'Poing américain',          en: 'Brass Knuckles',        effects: [S('melee', 3)], conf: 'sûr' },
-  morning_star:     { name: 'Fléau d’armes',            en: 'Morning Star',          effects: [S('melee', 5), SD(2)], conf: 'sûr' },
+  brass_knuckles:   { name: 'Poing de cuivre',          en: 'Brass Knuckles',        effects: [S('melee', 3)], conf: 'sûr' },
+  morning_star:     { name: "Fléau d'arme",            en: 'Morning Star',          effects: [S('melee', 5), SD(2)], conf: 'sûr' },
   titanium_bracers: { name: 'Brassards de titane',      en: 'Titanium Bracers',      effects: [P(2), P(2)], conf: 'sûr' },
   // avancées
   guard_helmet:     { name: 'Casque de garde',          en: 'Guard Helmet',          effects: [P(2), C(1)], conf: 'sûr', adv: true },
   rune_king:        { name: 'Rune du Roi',              en: 'Rune of the King',      effects: [D(1, 'all'), L], conf: 'sûr', adv: true },
-  runestone:        { name: 'Pierre de rune',           en: 'Runestone',             effects: [A('magic', 'round'), L], conf: 'sûr', adv: true },
+  runestone:        { name: 'Pierre de Rune',           en: 'Runestone',             effects: [A('magic', 'round'), L], conf: 'sûr', adv: true },
 
   // ===== Elfe des bois =====
-  star_blade:       { name: 'Lame étoilée',             en: 'Star Blade',            effects: [A('melee', 3)], conf: 'sûr' },
+  star_blade:       { name: 'Lame Étoile',             en: 'Star Blade',            effects: [A('melee', 3)], conf: 'sûr' },
   arrow_volley:     { name: 'Volée de flèches',         en: 'Arrow Volley',          effects: [S('ranged', 4)], conf: 'sûr' },
   sunfire:          { name: 'Feu solaire',              en: 'Sunfire',               effects: [A('magic', 4)], conf: 'sûr' },
-  magic_arrow_flurry: { name: 'Rafale de flèches magiques', en: 'Magic Arrow Flurry', effects: [S('magic', 3)], conf: 'sûr' },
+  magic_arrow_flurry: { name: 'Salve de flèches magiques', en: 'Magic Arrow Flurry', effects: [S('magic', 3)], conf: 'sûr' },
   shield_of_light:  { name: 'Bouclier de lumière',      en: 'Shield of Light',       effects: [P(3)], conf: 'sûr' },
   gaias_bow:        { name: 'Arc de Gaïa',              en: "Gaia's Bow",            effects: [A('ranged', 4), D(1, 'one')], conf: 'sûr' },
   // avancées (le paquet de chaque carte est donné par HEROES / CLASSES, recoupé dans les parties filmées)
   precision_shot:   { name: 'Tir de précision',         en: 'Precision Shot',        effects: [A('ranged', 'round'), L], conf: 'sûr', adv: true },
-  protection_spell: { name: 'Sort de protection',       en: 'Protection Spell',      effects: [P(2), L], conf: 'probable', adv: true },
+  protection_spell: { name: 'Sort de protection',       en: 'Protection Spell',      effects: [P(2), L], conf: 'sûr', adv: true },
   diadem:           { name: "Diadème d'invisibilité",   en: 'Diadem of Invisibility', effects: [{ t: 'nextAttack', boost: 3 }, L], conf: 'sûr', adv: true },
   mask_clairvoyance: { name: 'Masque de clairvoyance',  en: 'Mask of Clairvoyance',  effects: [{ t: 'choose', from: 'mask' }], conf: 'sûr', adv: true },
 
   // ===== Guerrier =====
-  amulet_bear:      { name: "Amulette de l'ours",       en: 'Amulet of the Bear',    effects: [S('melee', 3)], conf: 'sûr' },
+  amulet_bear:      { name: "Amulette de l'Ours",       en: 'Amulet of the Bear',    effects: [S('melee', 3)], conf: 'sûr' },
   hand_crossbow:    { name: 'Arbalète à main',          en: 'Hand Crossbow',         effects: [A('ranged', 3)], conf: 'sûr' },
-  throwing_daggers: { name: 'Dagues de lancer',         en: 'Throwing Daggers',      effects: [S('ranged', 3)], conf: 'probable' },
+  throwing_daggers: { name: 'Dagues de lancer',         en: 'Throwing Daggers',      effects: [S('ranged', 3)], conf: 'sûr' },
   lightning_blade:  { name: 'Lame de foudre',           en: 'Lightning Blade',       effects: [A('magic', 3)], conf: 'sûr' },
-  chain_mail:       { name: 'Cotte de mailles',         en: 'Chain Mail',            effects: [P(4)], conf: 'probable' },
-  sword_ruby_guard: { name: 'Épée de la Garde rubis',   en: 'Sword of the Ruby Guard', effects: [A('melee', 4)], conf: 'sûr' },
+  chain_mail:       { name: 'Cotte de mailles',         en: 'Chain Mail',            effects: [P(4)], conf: 'sûr' },
+  sword_ruby_guard: { name: 'Épée à la garde de Rubis',   en: 'Sword of the Ruby Guard', effects: [A('melee', 4)], conf: 'sûr' },
   // avancées
-  anti_boss:        { name: 'Anti-Boss-3000',           en: 'Anti-Boss-3000',        effects: [{ t: 'antiBoss' }], conf: 'sûr', adv: true, exile: true },
+  anti_boss:        { name: 'Anti-Boss 3000',           en: 'Anti-Boss-3000',        effects: [{ t: 'antiBoss' }], conf: 'sûr', adv: true, exile: true },
   chivalrous:       { name: 'Acte chevaleresque',       en: 'Chivalrous Assistance', effects: [{ t: 'redirect', target: 'one' }], conf: 'sûr', adv: true },
-  shoulder_spikes:  { name: 'Épaulettes à pointes',     en: 'Shoulder Spikes',       effects: [A('melee', 2), P(2)], conf: 'sûr', adv: true },
+  shoulder_spikes:  { name: 'Épaulette à pointes',     en: 'Shoulder Spikes',       effects: [A('melee', 2), P(2)], conf: 'sûr', adv: true },
   feint:            { name: 'Feinte',                   en: 'Feint',                 effects: [S('melee', 2), L], conf: 'sûr', adv: true },
 
   // ===== Mage =====
@@ -113,7 +113,7 @@ const CARDS = {
   magic_explosion:  { name: 'Explosion magique',        en: 'Magic Explosion',       effects: [S('magic', 4)], conf: 'sûr' },
   ritual_dagger:    { name: 'Dague rituelle',           en: 'Ritual Dagger',         effects: [A('melee', 3)], conf: 'sûr' },
   flame_shield:     { name: 'Bouclier de flammes',      en: 'Flame Shield',          effects: [S('magic', 2), P(2)], conf: 'sûr' },
-  obsidian_shards:  { name: "Éclats d'obsidienne",      en: 'Obsidian Shards',       effects: [A('ranged', 3)], conf: 'sûr' },
+  obsidian_shards:  { name: "Éclats d'Obsidienne",      en: 'Obsidian Shards',       effects: [A('ranged', 3)], conf: 'sûr' },
   energy_drain:     { name: "Drain d'énergie",          en: 'Energy Drain',          effects: [A('magic', 2), H(2, 'one')], conf: 'sûr' },
   // avancées
   meteor_shower:    { name: 'Pluie de météores',        en: 'Meteor Shower',         effects: [A('melee', 'd3'), A('ranged', 'd3'), A('magic', 'd3'), SD(2)], conf: 'sûr', adv: true },
@@ -122,35 +122,56 @@ const CARDS = {
   deja_vu:          { name: 'Déjà-vu',                  en: 'Déjà-Vu',               effects: [{ t: 'choose', from: 'dejavu' }], conf: 'sûr', adv: true },
 
   // ===== Roublard =====
-  shadow_blade:     { name: "Lame d'ombre",             en: 'Shadow Blade',          effects: [A('melee', 3)], conf: 'probable' },
-  thorn_trap:       { name: "Piège d'épines",           en: 'Thorn Trap',            effects: [S('melee', 4)], conf: 'sûr' },
+  shadow_blade:     { name: "Lame d'Ombre",             en: 'Shadow Blade',          effects: [A('melee', 3)], conf: 'sûr' },
+  thorn_trap:       { name: 'Piège acéré',           en: 'Thorn Trap',            effects: [S('melee', 4)], conf: 'sûr' },
   throwing_knives:  { name: 'Couteaux de lancer',       en: 'Throwing Knives',       effects: [S('ranged', 3)], conf: 'sûr' },
-  shadow_robe:      { name: "Robe d'ombre",             en: 'Shadow Robe',           effects: [P(3)], conf: 'sûr' },
+  shadow_robe:      { name: "Robe d'Ombre",             en: 'Shadow Robe',           effects: [P(3)], conf: 'sûr' },
   hornet_sting:     { name: 'Piqûre de frelon',         en: 'Hornet Sting',          effects: [A('ranged', 2), L], conf: 'sûr' },
   // avancées (le paquet de chaque carte est donné par HEROES / CLASSES, recoupé dans les parties filmées)
-  curse_raven:      { name: 'Malédiction du corbeau',   en: 'Curse of the Raven',    effects: [{ t: 'bossLoss', v: 2 }, { t: 'raven' }], conf: 'sûr', adv: true },
-  poison_blade:     { name: 'Lame empoisonnée',         en: 'Poison Blade',          effects: [A('melee', 2), PB(1)], conf: 'probable', adv: true },
-  smoke_bomb:       { name: 'Bombe fumigène',           en: 'Smoke Bomb',            effects: [P(2, true), L], conf: 'probable', adv: true },
-  viper_tooth:      { name: 'Croc de vipère',           en: 'Viper Tooth',           effects: [A('ranged', 2), PB(1)], conf: 'probable', adv: true },
+  curse_raven:      { name: 'Malédiction du Corbeau',   en: 'Curse of the Raven',    effects: [{ t: 'bossLoss', v: 2 }, { t: 'raven' }], conf: 'sûr', adv: true },
+  poison_blade:     { name: 'Lame empoisonnée',         en: 'Poison Blade',          effects: [A('melee', 2), PB(1)], conf: 'sûr', adv: true },
+  smoke_bomb:       { name: 'Bombe fumigène',           en: 'Smoke Bomb',            effects: [P(2, true), L], conf: 'sûr', adv: true },
+  viper_tooth:      { name: 'Croc de vipère',           en: 'Viper Tooth',           effects: [A('ranged', 2), PB(1)], conf: 'sûr', adv: true },
 
   // ===== Druide =====
-  bluethorn_staff:  { name: "Bâton d'épine bleue",      en: 'Bluethorn Staff',       effects: [A('magic', 3)], conf: 'sûr' },
+  bluethorn_staff:  { name: 'Bâton Bleuépine',      en: 'Bluethorn Staff',       effects: [A('magic', 3)], conf: 'sûr' },
   wall_of_roots:    { name: 'Mur de racines',           en: 'Wall of Roots',         effects: [P(3)], conf: 'sûr' },
-  wyrmtooth_blade:  { name: 'Lame en croc de wyrm',     en: 'Wyrmtooth Blade',       effects: [A('melee', 3)], conf: 'sûr' },
+  wyrmtooth_blade:  { name: 'Lame à dent de Vouivre',     en: 'Wyrmtooth Blade',       effects: [A('melee', 3)], conf: 'sûr' },
   murder_of_crows:  { name: 'Nuée de corbeaux',         en: 'Murder of Crows',       effects: [A('ranged', 4)], conf: 'sûr' },
   magic_vortex:     { name: 'Vortex magique',           en: 'Magic Vortex',          effects: [A('magic', 2), L], conf: 'sûr' },
   // avancées (le paquet de chaque carte est donné par HEROES / CLASSES, recoupé dans les parties filmées)
-  mushroom_powder:  { name: 'Poudre de champignon',     en: 'Mushroom Powder',       effects: [H(5, 'one'), G({ same: true })], conf: 'sûr', adv: true },
+  mushroom_powder:  { name: 'Poudre de champignons',     en: 'Mushroom Powder',       effects: [H(5, 'one'), G({ same: true })], conf: 'sûr', adv: true },
   antidote:         { name: 'Antidote',                 en: 'Antidote',              effects: [C(2), L], conf: 'sûr', adv: true },
-  phoenix_owl:      { name: 'Chouette phénix',          en: 'Phoenix Owl',           effects: [{ t: 'nextAttack', heal: true, target: 'one' }, L], conf: 'sûr', adv: true },
-  lyrias_ring:      { name: 'Anneau de Lyria',          en: "Lyria's Ring",          effects: [H(2, 'all'), L], conf: 'probable', adv: true },
+  phoenix_owl:      { name: 'Phénix-Hibou',          en: 'Phoenix Owl',           effects: [{ t: 'nextAttack', heal: true, target: 'one' }, L], conf: 'sûr', adv: true },
+  lyrias_ring:      { name: 'Anneau de Lyria',          en: "Lyria's Ring",          effects: [H(2, 'all'), L], conf: 'sûr', adv: true },
 
   // ===== Butin ★1 (après le Prince ; pas encore utilisé) =====
   curse_breaker:    { name: 'Brise-malédiction',        en: 'Curse Breaker',         effects: [{ t: 'breakCurse', target: 'one' }], conf: 'sûr', loot: 1 },
-  arcane_monocle:   { name: 'Monocle arcanique',        en: 'Arcane Monocle',        effects: [S('ranged', 3), S('magic', 3)], conf: 'probable', loot: 1 },
-  banner_courage:   { name: 'Bannière de bravoure',     en: 'Banner of Courage',     effects: [G(), L], conf: 'probable', loot: 1 },
-  blade_of_wind:    { name: 'Lame du vent',             en: 'Blade of Wind',         effects: [A('melee', 3), L], conf: 'probable', loot: 1 },
-  living_boots:     { name: 'Bottes animées',           en: 'Living Boots',          effects: [P(1), D(1, 'one'), L], conf: 'probable', loot: 1 },
+  arcane_monocle:   { name: 'Monocle arcanique',        en: 'Arcane Monocle',        effects: [S('ranged', 3), S('magic', 3)], conf: 'sûr', loot: 1 },
+  banner_courage:   { name: 'Bannière de bravoure',     en: 'Banner of Courage',     effects: [G(), L], conf: 'sûr', loot: 1 },
+  blade_of_wind:    { name: 'Lame du Vent',             en: 'Blade of Wind',         effects: [A('melee', 3), L], conf: 'sûr', loot: 1 },
+  living_boots:     { name: 'Bottes animées',           en: 'Living Boots',          effects: [P(1), D(1, 'one'), L], conf: 'sûr', loot: 1 },
+
+  // ===== Butin ★2 (après la Chasseuse d'âmes ; textes lus en vidéo, noms traduits de l'allemand) =====
+  spur_on:          { name: 'Encouragement',            en: 'Spur On',               effects: [D(3, 'one'), G({ same: true })], conf: 'probable', loot: 2 },
+  gladiator_shield: { name: 'Bouclier de lancer du gladiateur', en: "Gladiator's Throwing Shield", effects: [S('ranged', 3), P(3)], conf: 'probable', loot: 2 },
+  weapon_poison:    { name: "Poison d'arme",            en: 'Weapon Poison',         effects: [{ t: 'shieldDown', v: 2, poisonIfBroken: 2 }], conf: 'probable', loot: 2 },
+  coin_of_fate:     { name: 'Pièce du destin',          en: 'Coin of Fate',          effects: [S('melee', 5)], conf: 'probable', loot: 2 },
+  sky_rune:         { name: 'Rune céleste',             en: 'Sky Rune',              effects: [A('magic', 4), D(1, 'one')], conf: 'probable', loot: 2 },
+
+  // ===== Butin ★3 (après le Dragon de l'éther) =====
+  blessed_pauldrons: { name: 'Épaulières consacrées',   en: 'Blessed Pauldrons',     effects: [P(4, true)], conf: 'probable', loot: 3 },
+  carefree_elixir:  { name: "Élixir d'insouciance",     en: 'Elixir of Carelessness', effects: [C(1, 'all')], conf: 'probable', loot: 3 },
+  piercing_volley:  { name: 'Volée perçante',           en: '?',                     effects: [S('ranged', 5)], conf: 'supposé', loot: 3 },
+  healing_chant:    { name: 'Chant de guérison',        en: '?',                     effects: [H(3, 'all'), L], conf: 'supposé', loot: 3 },
+  pyro_trap:        { name: 'Piège pyrotechnique',      en: 'Pyro Trap',             effects: [{ t: 'shieldDown', v: 4, silent: true }], conf: 'probable', loot: 3 },
+
+  // ===== Butin ★4 (après le Golem de pierre) =====
+  magic_skin:       { name: 'Peau magique',             en: 'Magic Skin',            effects: [P('round'), L], conf: 'probable', loot: 4 },
+  arcane_blade:     { name: 'Lame arcanique',           en: 'Arcane Blade',          effects: [S('melee', 4), S('magic', 3)], conf: 'probable', loot: 4 },
+  perfect_teamwork: { name: 'Coopération parfaite',     en: 'Perfect Teamwork',      effects: [{ t: 'drawDiscard', draw: 2, discard: 1 }, L], conf: 'probable', loot: 4 },
+  crushing_blow:    { name: 'Coup écrasant',            en: '?',                     effects: [{ t: 'bossLoss', v: 3 }, L], conf: 'supposé', loot: 4 },
+  plague_herald:    { name: 'Messager de la peste',     en: 'Plague Herald',         effects: [{ t: 'pestbote', v: 2 }], conf: 'probable', loot: 4 },
 };
 
 // PV / cartes en main lus sur les cartes Héros et Classe.
@@ -188,6 +209,9 @@ const ITEMS = {
   backpack: { name: 'Sac à dos',      emoji: '🎒', text: 'Pioche 3 cartes. Utilisable sans limite.' },
   potion:   { name: 'Potion de soin', emoji: '🧪', text: 'Un héros au choix regagne 8 PV. 1 potion par héros et par combat.' },
   charm:    { name: 'Porte-bonheur',  emoji: '🍀', text: 'Joue la carte du dessus de ta pioche. Ses éclairs sont ignorés. Débloqué après le Prince.' },
+  // Après la Chasseuse d'âmes (★2) et le Dragon de l'éther (★3) — vus en vidéo.
+  medbag:   { name: 'Sac de remèdes', emoji: '💼', text: "Un héros au choix retire 2 jetons d'état. Utilisable sans limite. Débloqué après la Chasseuse d'âmes." },
+  waterskin: { name: 'Outre',         emoji: '🫗', text: 'Un héros au choix regagne 3 PV. 1 gorgée par héros et par combat. Débloquée après le Dragon de l’éther.' },
 };
 
 const DMG_LABEL = { melee: 'de mêlée', ranged: 'à distance', magic: 'magique' };
@@ -229,6 +253,11 @@ function effectText(e) {
     case 'antiBoss': return 'La prochaine capacité ⌛ du boss est empêchée. Retire cette carte du combat';
     case 'improvise': return `Un héros au choix joue les ${e.v} cartes du dessus de sa pioche, l'une après l'autre`;
     case 'breakCurse': return '✂️ Une malédiction active d’un héros au choix va à la défausse des malédictions';
+    case 'shieldDown': return `🔻 Le plus faible bouclier encore debout du boss perd ${v}` +
+      (e.poisonIfBroken ? ` ; s'il est détruit, le boss reçoit ${e.poisonIfBroken} Poison` : '') +
+      (e.silent ? " (sans déclencher l'effet du bouclier)" : '');
+    case 'drawDiscard': return `🃏 Chaque héros pioche ${e.draw} cartes puis en défausse ${e.discard} au hasard`;
+    case 'pestbote': return `Remets une autre carte de ta main sur ta pioche ; le boss reçoit ${v} Poison`;
     case 'choose': return e.from === 'dejavu'
       ? 'Joue 1 carte de ta défausse ou celle du dessus de ta pioche, puis retire-la du combat'
       : 'Regarde les 3 cartes du dessus de ta pioche, joues-en 1 et remets les autres dessus ou dessous';

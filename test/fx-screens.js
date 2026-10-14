@@ -35,15 +35,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await b.waitForSelector('.seat-slot');
 
   const sit = async (p, seat, hero, cls) => {
-    await p.click(`[data-action="seat"][data-seat="${seat}"]`); await wait(250);
     await p.click(`[data-kind="hero"][data-id="${hero}"]`); await wait(250);
     await p.click(`[data-kind="cls"][data-id="${cls}"]`); await wait(250);
-    await p.click('[data-action="sit"]'); await wait(350);
+    await p.click('[data-action="close-modal"]'); await wait(350);
+    if (seat !== undefined) { await p.evaluate((s) => document.querySelector(`[data-action="seat"][data-seat="${s}"]`)?.click(), seat); await wait(300); }
   };
   await sit(a, 0, 'dwarf', 'warrior');
   await sit(b, 4, 'elf', 'mage');
   await a.click('[data-action="start"]');
   await a.waitForSelector('.crests');
+  // Phases 1 et 2 affichées au centre : on clique « Continuer » jusqu'au vote.
+  for (let k = 0; k < 3 && await a.$('[data-action="continue"]'); k++) { await a.click('[data-action="continue"]'); await wait(400); }
   for (const p of pages) await p.evaluate(() => document.querySelector('[data-action="vote"][data-idx="0"]')?.click()); // tout le monde vote pour le premier héros
   await wait(600);
 

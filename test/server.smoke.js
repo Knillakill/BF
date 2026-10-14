@@ -21,7 +21,13 @@ const wait = (sock, ev, pred = () => true) => new Promise((resolve, reject) => {
   a.emit('create', { token: 'A', name: 'Lisa' });
   const { code } = await wait(a, 'joined');
   b.emit('join', { token: 'B', name: 'Tom', code });
-  await wait(a, 'state', (s) => s.players.length === 2);
+  const joined = await wait(a, 'state', (s) => s.players.length === 2);
+  // Chacun est assis en arrivant, dans le sens des aiguilles d'une montre.
+  assert.deepStrictEqual(joined.players.map((p) => p.seat), [0, 1], 'places attribuées à l’arrivée');
+
+  // Campagne : le Prince est verrouillé tant que M. Pantin n'est pas battu.
+  a.emit('settings', { boss: 'prince' });
+  assert.match(await wait(a, 'oops'), /débloque/);
 
   a.emit('pick', { hero: 'dwarf' });
   b.emit('pick', { hero: 'dwarf' });
@@ -30,14 +36,13 @@ const wait = (sock, ev, pred = () => true) => new Promise((resolve, reject) => {
   a.emit('pick', { cls: 'warrior' });
   await wait(a, 'state', (s) => s.players.every((p) => p.hero && p.cls));
 
-  // Les places : chacun choisit la sienne au bord de la tablette.
-  a.emit('start');
-  assert.match(await wait(a, 'oops'), /place/);
+  // Changer de place : seulement vers une place libre.
   a.emit('pick', { seat: 5 });
+  await wait(b, 'state', (s) => s.players.find((p) => p.id === 'A').seat === 5);
   b.emit('pick', { seat: 5 });
   assert.match(await wait(b, 'oops'), /déjà prise/);
   b.emit('pick', { seat: 2 });
-  await wait(a, 'state', (s) => s.players.every((p) => p.seat !== null));
+  await wait(a, 'state', (s) => s.players.find((p) => p.id === 'B').seat === 2);
 
   b.emit('start');
   assert.match(await wait(b, 'oops'), /hôte/);
@@ -46,6 +51,11 @@ const wait = (sock, ev, pred = () => true) => new Promise((resolve, reject) => {
   assert.deepStrictEqual(sa.game.heroes.map((h) => h.name), ['Tom', 'Lisa'], "l'ordre du tour suit les places (2 avant 5)");
   assert.strictEqual(sa.game.heroes[1].hand.length, 6, 'Lisa voit sa main');
   assert.strictEqual(sa.game.heroes[0].hand, null, "Lisa ne voit pas la main de Tom");
+
+  // Phase 1 affichée au centre : un joueur clique « Continuer » (le tutoriel n'a pas de boucliers au tour 1).
+  assert.strictEqual(sa.game.step.kind, 'planning', 'le combat commence par la planification');
+  b.emit('act', { type: 'continue', step: sa.game.step.id });
+  await wait(b, 'state', (s) => s.game.phase === 'action' && !s.game.step);
 
   b.emit('act', { type: 'starter', hero: 0 });
   const sb = await wait(b, 'state', (s) => s.game.current === 0);

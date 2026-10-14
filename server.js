@@ -55,13 +55,36 @@ function cleanName(name) {
 // Les étoiles de butin commencent après le Prince : ★1 = Prince vaincu.
 const starsOf = (room) => Math.max(0, room.beaten - 1);
 
+// Place attribuée en entrant dans le salon : la première libre après celle du dernier arrivé,
+// dans le sens des aiguilles d'une montre (le premier joueur prend la place 0).
+function nextSeat(room) {
+  const taken = new Set(room.players.map((p) => p.seat).filter((s) => s !== null && s !== undefined));
+  const last = [...room.players].reverse().find((p) => p.seat !== null && p.seat !== undefined);
+  const start = last ? last.seat + 1 : 0;
+  for (let k = 0; k < SEATS; k++) {
+    const s = (start + k) % SEATS;
+    if (!taken.has(s)) return s;
+  }
+  return null;
+}
+
 // Après une victoire contre le boss suivant de la campagne, la progression avance.
 function progress(room) {
   const g = room.game;
   if (!g || g.result !== 'win' || g.progressed) return;
   g.progressed = true;
-  if (BOSSES[room.boss].order === room.beaten) room.beaten++;
+  if (BOSSES[room.boss].order !== room.beaten) return;
+  room.beaten++;
+  // Le boss suivant de la campagne est proposé d'office.
+  const next = Object.values(BOSSES).find((b) => b.order === room.beaten);
+  if (next) room.boss = next.id;
 }
+
+// Niveaux de butin (★) qu'un joueur n'a pas encore choisis.
+const missingLoot = (room, p) => {
+  const have = new Set((p.loot || []).map((id) => CARDS[id].loot));
+  return Array.from({ length: starsOf(room) }, (_, k) => k + 1).filter((lvl) => !have.has(lvl));
+};
 
 function broadcast(room) {
   for (const p of room.players) {
@@ -104,7 +127,7 @@ io.on('connection', (socket) => {
     if (!token) throw new Error('Identifiant manquant');
     const code = newCode();
     const r = { code, hostId: token, players: [], boss: 'puppet', difficulty: 'advanced', beaten: 0, game: null }; // la campagne commence par le tutoriel
-    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: null, loot: [], removed: [], socketId: null });
+    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: nextSeat(r), loot: [], removed: [], socketId: null });
     rooms.set(code, r);
     attach(r, token);
   }));
@@ -119,22 +142,18 @@ io.on('connection', (socket) => {
     }
     if (r.game) throw new Error('Un combat est déjà en cours dans ce salon.');
     if (r.players.length >= MAX_PLAYERS) throw new Error('Le salon est complet (4 joueurs).');
-    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: null, loot: [], removed: [], socketId: null });
+    r.players.push({ id: token, name: cleanName(name), hero: null, cls: null, seat: nextSeat(r), loot: [], removed: [], socketId: null });
     attach(r, token);
   }));
 
-  // Comme dans l'appli : on choisit héros et classe, puis une place au bord de la tablette.
-  // seat = null renvoie le héros à l'écran de sélection.
+  // Chacun est assis d'office en entrant ; il choisit son héros et sa classe, et peut changer de place libre.
   socket.on('pick', handle(({ hero, cls, seat }) => {
     if (!room || room.game) return;
-    if (seat !== undefined) {
-      if (seat === null) me.seat = null;
-      else {
-        const s = Number(seat);
-        if (!Number.isInteger(s) || s < 0 || s >= SEATS) throw new Error('Place inconnue');
-        if (room.players.some((p) => p !== me && p.seat === s)) throw new Error('Cette place est déjà prise.');
-        me.seat = s;
-      }
+    if (seat !== undefined && seat !== null) {
+      const s = Number(seat);
+      if (!Number.isInteger(s) || s < 0 || s >= SEATS) throw new Error('Place inconnue');
+      if (room.players.some((p) => p !== me && p.seat === s)) throw new Error('Cette place est déjà prise.');
+      me.seat = s;
     }
     if (hero !== undefined) {
       if (hero && !HEROES[hero]) throw new Error('Héros inconnu');
@@ -162,10 +181,16 @@ io.on('connection', (socket) => {
   socket.on('settings', handle(({ boss, difficulty, beaten }) => {
     if (!room || room.game) return;
     if (room.hostId !== me.id) throw new Error("Seul l'hôte peut changer le boss.");
-    if (boss && BOSSES[boss]) room.boss = boss;
+    if (boss && BOSSES[boss]) {
+      // Campagne : un boss n'est accessible qu'une fois le précédent vaincu.
+      if (BOSSES[boss].order > room.beaten) throw new Error('Ce boss se débloque en battant le précédent.');
+      room.boss = boss;
+    }
     if (difficulty && DIFFICULTIES[difficulty]) room.difficulty = difficulty;
-    if (Number.isInteger(beaten) && beaten >= 0 && beaten <= Object.keys(BOSSES).length) {
+    // Réglage manuel de la progression : réservé aux scripts de test (BF_DEV=1).
+    if (process.env.BF_DEV && Number.isInteger(beaten) && beaten >= 0 && beaten <= Object.keys(BOSSES).length) {
       room.beaten = beaten;
+      if (BOSSES[room.boss].order > beaten) room.boss = 'puppet';
       // Le butin au-delà des étoiles débloquées n'est plus autorisé.
       for (const p of room.players) {
         p.loot = (p.loot || []).filter((id) => CARDS[id].loot <= starsOf(room));
@@ -184,6 +209,8 @@ io.on('connection', (socket) => {
       const c = CARDS[id];
       if (!c || !c.loot || c.loot > stars) throw new Error('Butin non débloqué.');
       if (levels.has(c.loot)) throw new Error('Un seul butin par niveau d’étoile.');
+      // Chaque carte de butin n'existe qu'en un exemplaire (livret p.12).
+      if (room.players.some((p) => p !== me && (p.loot || []).includes(id))) throw new Error('Un autre joueur a déjà pris ce butin.');
       levels.add(c.loot);
     }
     if (!me.hero || !me.cls) throw new Error('Choisis d’abord ton héros et ta classe.');
@@ -202,6 +229,10 @@ io.on('connection', (socket) => {
   socket.on('start', handle(() => {
     if (!room) return;
     if (room.hostId !== me.id) throw new Error("Seul l'hôte peut lancer le combat.");
+    if (room.players.length < 2) throw new Error('Il faut au moins 2 joueurs pour lancer un combat (2 à 4).');
+    // Après chaque boss vaincu (à partir du Prince), chacun ajoute une carte de butin à son paquet.
+    const noLoot = BOSSES[room.boss].starterOnly ? [] : room.players.filter((p) => missingLoot(room, p).length);
+    if (noLoot.length) throw new Error(`Butin à choisir avant le combat : ${noLoot.map((p) => p.name).join(', ')}.`);
     if (room.players.some((p) => !p.hero || !p.cls || p.seat === null)) {
       throw new Error('Tout le monde doit choisir un héros, une classe et une place.');
     }
@@ -222,6 +253,9 @@ io.on('connection', (socket) => {
       case 'pass': g.pass(me.id); break;
       case 'choose': g.choose(me.id, a.uid, a.targets, !!a.under); break;
       case 'discard': g.submitDiscard(me.id, a.uids); break;
+      case 'continue': g.continueStep(me.id, a.step); break;
+      case 'tie': g.resolveTie(me.id, a.hero); break;
+      case 'raven': g.setRavenKeep(me.id, a.keep); break;
       case 'giveup': g.giveUp(me.id); break;
       default: throw new Error('Action inconnue');
     }

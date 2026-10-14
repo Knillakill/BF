@@ -19,19 +19,36 @@ if (!token) {
 let catalog = null;
 let state = null;
 // pending : ciblage en cours { kind: 'card' | 'choose' | 'potion', uid?, steps: [libellés], targets: [] }
-// seatModal : place vide cliquée, en attente du choix du héros et de la classe.
+// seatModal : fenêtre de choix du héros et de la classe ouverte en cliquant sur sa place.
 const ui = { pending: null, discardSel: new Set(), lastPhaseKey: '', homeRendered: false, seatModal: null };
 
 // ---------- Visuels ----------
 
-// Illustrations générées avec Canva (public/img).
-const HERO_IMG = { troll: 'img/troll.jpg', halfling: 'img/halfling.jpg', dwarf: 'img/dwarf.jpg', elf: 'img/elf.jpg' };
+// Héros : illustration des vraies cartes (public/cards) ; boss : images générées avec Canva (public/img).
+const HERO_IMG = { troll: 'cards/hero_troll.webp', halfling: 'cards/hero_halfling.webp', dwarf: 'cards/hero_dwarf.webp', elf: 'cards/hero_elf.webp' };
 const BOSS_IMG = { toad: 'img/prince.jpg', puppet: 'img/puppet.jpg', huntress: 'img/huntress.jpg' };
-const CAMPAIGN_STEPS = ['Début de campagne', 'M. Pantin vaincu', 'Le Prince vaincu (★1)', 'La Chasseuse d’âmes vaincue (★2)'];
+// Boss sans illustration : fond dessiné en CSS et emblème.
+const BOSS_EMBLEM = { dragon: '🐉', golem: '🗿', ogre: '👹' };
+const bossBg = (art) => (BOSS_IMG[art] ? `style="background-image:url(${BOSS_IMG[art]})"` : `data-emblem="${BOSS_EMBLEM[art] || '👑'}"`);
 const CLASS_ICON = { warrior: 'cls-warrior', mage: 'cls-mage', rogue: 'cls-rogue', druid: 'cls-druid' };
-const TYPE_ICON = { melee: 'melee', ranged: 'ranged', magic: 'magic', protect: 'protect', heal: 'heal', util: 'draw' };
-const AB_ICON = { attack: 'attack-boss', threshold: 'broken-heart', reaction: 'fangs', recurring: 'hourglass', shield: 'protect' };
-const AB_LABEL = { attack: 'Attaque', threshold: 'Seuil de vie', reaction: 'Réaction', recurring: 'Récurrente', shield: 'Bouclier' };
+const AB_ICON = { attack: 'attack-boss', threshold: 'broken-heart', reaction: 'fangs', recurring: 'hourglass', shield: 'protect', exhaust: 'hourglass' };
+const AB_LABEL = { attack: 'Attaque', threshold: 'Seuil de vie', reaction: 'Réaction', recurring: 'Récurrente', shield: 'Bouclier', exhaust: 'Sablier rouge (tutoriel)' };
+const AB_HELP = {
+  attack: "Effet lié à l'attaque du boss.",
+  threshold: 'Se déclenche quand la vie du boss passe sous un seuil.',
+  reaction: "Réaction directe à vos actions : comprenez ce qui la déclenche pour l'éviter.",
+  recurring: 'Se répète à intervalle régulier (chaque tour ou un tour sur deux), en fin de tour.',
+  shield: 'Effet attaché à un bouclier du boss : il se déclenche quand on le touche.',
+  exhaust: 'Capacité du tutoriel : le boss s’épuise et perd de lui-même une grosse partie de sa vie.',
+};
+const GAUGE_HELP = {
+  land: 'Se remplit avec les dégâts infligés en vol. Pleine : le Dragon atterrit (boucliers hauts, attaques plus faibles).',
+  wrath: "Se remplit à chaque action des joueurs. Pleine : le Dragon attaque immédiatement puis redécolle.",
+  ground: 'Il ne peut plus voler.',
+  energy: 'Se remplit avec les dégâts du tour. Pleine : ses pierrolins frappent le héros actif.',
+  head: "Se vide avec les dégâts du type de la tête. Vide : la tête est assommée jusqu'au tour suivant.",
+  down: 'Tête assommée : elle se réveille au début du prochain tour.',
+};
 const DMG_NAME = { melee: 'Mêlée', ranged: 'Distance', magic: 'Magie' };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -152,7 +169,7 @@ const seatStyle = (i) => `--x:${SEATS[i].x}%;--y:${SEATS[i].y}%`;
 
 function heroPickCard(id, x, selected, taken) {
   return `
-    <button class="hero-card ${selected ? 'sel' : ''}" data-action="pick" data-kind="hero" data-id="${id}" ${taken ? 'disabled' : ''}>
+    <button class="hero-card photo-pick ${selected ? 'sel' : ''}" style="background-image:url(cards/hero_${id}.webp)" title="${esc(x.name)} : ${x.hp} PV, ${x.hand} cartes en main" data-action="pick" data-kind="hero" data-id="${id}" ${taken ? 'disabled' : ''}>
       ${portrait(id, 'fill')}
       <span class="stats"><span class="stat" title="Cartes en main">${ic('hand')}<b>${x.hand}</b></span><span class="stat hp" title="Points de vie">${ic('heal')}<b>${x.hp}</b></span></span>
       <span class="name-band">${esc(x.name)}</span>
@@ -162,7 +179,7 @@ function heroPickCard(id, x, selected, taken) {
 
 function classPickCard(id, x, selected, taken) {
   return `
-    <button class="class-banner c-${id} ${selected ? 'sel' : ''}" data-action="pick" data-kind="cls" data-id="${id}" ${taken ? 'disabled' : ''}>
+    <button class="class-banner photo-pick c-${id} ${selected ? 'sel' : ''}" style="background-image:url(cards/class_${id}.webp)" title="${esc(x.name)} : ${x.hp} PV, ${x.hand} carte(s) en main" data-action="pick" data-kind="cls" data-id="${id}" ${taken ? 'disabled' : ''}>
       <span class="banner-cloth">${ic(CLASS_ICON[id], 'big')}</span>
       <span class="stats"><span class="stat" title="Cartes en main">${ic('hand')}<b>${x.hand}</b></span><span class="stat hp" title="Points de vie">${ic('heal')}<b>${x.hp}</b></span></span>
       <span class="name-band">${esc(x.name)}</span>
@@ -170,7 +187,7 @@ function classPickCard(id, x, selected, taken) {
     </button>`;
 }
 
-// Écran de sélection (héros + classe) ouvert en cliquant sur une place vide.
+// Écran de sélection (héros + classe) : ouvert à l'arrivée dans le salon, puis en cliquant sur sa place.
 function seatModal(me) {
   const takenHero = (id) => state.players.some((p) => p.hero === id && p.id !== token);
   const takenCls = (id) => state.players.some((p) => p.cls === id && p.id !== token);
@@ -184,8 +201,7 @@ function seatModal(me) {
         <div class="class-picks">${Object.entries(catalog.classes).map(([id, x]) => classPickCard(id, x, me.cls === id, takenCls(id))).join('')}</div>
         ${ok ? `<p class="totals">${ic('heal')} <b>${catalog.heroes[me.hero].hp + catalog.classes[me.cls].hp}</b> PV de départ · ${ic('hand')} <b>${catalog.heroes[me.hero].hand + catalog.classes[me.cls].hand}</b> cartes en main</p>` : ''}
         <div class="modal-actions">
-          <button class="btn ghost-dark" data-action="close-modal">Annuler</button>
-          <button class="btn go" data-action="sit" ${ok ? '' : 'disabled'}>S'asseoir ici ${ic('grant')}</button>
+          <button class="btn go" data-action="close-modal" ${ok ? '' : 'disabled'}>Valider ${ic('grant')}</button>
         </div>
       </div>
     </div>`;
@@ -197,18 +213,20 @@ function renderLobby() {
   const boss = catalog.bosses[state.boss];
   const starterOnly = boss.starterOnly;
   const ready = state.players.every((p) => p.hero && p.cls && p.seat !== null);
+  // En arrivant (déjà assis d'office), la sélection s'ouvre jusqu'à ce que héros et classe soient validés.
+  if (!(me.hero && me.cls)) ui.seatModal = true;
   const bySeat = {};
   for (const p of state.players) if (p.seat !== null && p.seat !== undefined) bySeat[p.seat] = p;
 
   const seat = (i) => {
     const p = bySeat[i];
     if (!p) {
-      return `<button class="seat-slot empty s-${SEATS[i].side}" style="${seatStyle(i)}" data-action="seat" data-seat="${i}" title="S'asseoir ici">+</button>`;
+      return `<button class="seat-slot empty s-${SEATS[i].side}" style="${seatStyle(i)}" data-action="seat" data-seat="${i}" title="Changer de place">+</button>`;
     }
     const mine = p.id === token;
     return `
       <div class="seat-slot taken s-${SEATS[i].side} ${mine ? 'mine' : ''} ${p.online ? '' : 'offline'}" style="${seatStyle(i)}"
-           ${mine ? 'data-action="unseat" title="Retourner à la sélection"' : ''}>
+           ${mine ? 'data-action="edit-seat" title="Changer de héros ou de classe"' : ''}>
         ${portrait(p.hero, 'sq')}
         <span class="seat-name">${esc(p.name)}</span>
         <span class="seat-cls c-${p.cls}">${ic(CLASS_ICON[p.cls])}</span>
@@ -229,12 +247,30 @@ function renderLobby() {
     return cardHtml(id, { cls: `${removed ? 'removed' : ''} ${clickable ? 'clickable' : ''}`, attrs: clickable ? `data-action="remove-card" data-id="${id}"` : '' });
   };
   const lootLevels = Array.from({ length: state.stars }, (_, k) => k + 1);
+  // Chaque carte de butin n'existe qu'en un exemplaire : celles d'un autre joueur sont grisées.
+  const takenBy = (id) => state.players.find((p) => p.id !== token && (p.loot || []).includes(id));
+  const lootCard = (c) => {
+    const other = takenBy(c.id);
+    return other
+      ? cardHtml(c.id, { cls: 'loot-taken', attrs: `data-taken="Pris par ${esc(other.name)}"` })
+      : cardHtml(c.id, { cls: `clickable ${myLoot.includes(c.id) ? 'chosen' : ''}`, attrs: `data-action="loot" data-id="${c.id}"` });
+  };
+  const missingLevels = lootLevels.filter((lvl) => !myLoot.some((id) => catalog.cards[id].loot === lvl));
+  // Récompense : après un boss vaincu, chacun choisit UNE carte parmi celles proposées, ajoutée à son paquet.
+  const lootModal = me.hero && me.cls && missingLevels.length ? `
+    <div class="modal-back">
+      <div class="modal parchment loot-modal">
+        <h2>Butin ★${missingLevels[0]} : choisis ta récompense</h2>
+        <p class="hint">Choisis <b>une seule</b> carte : elle rejoint ton paquet et sera jouable dès le prochain boss. Chaque carte n'existe qu'en un exemplaire.</p>
+        <div class="cards">${Object.values(catalog.cards).filter((c) => c.loot === missingLevels[0]).map(lootCard).join('')}</div>
+      </div>
+    </div>` : '';
   const lootBlock = !starterOnly && state.stars > 0 ? `
          <h3>Butin <small>(1 carte par étoile ; chaque butin permet de retirer 1 carte d'action)</small></h3>
          ${lootLevels.map((lvl) => `
            <p class="loot-level">★${lvl}</p>
            <div class="cards">${Object.values(catalog.cards).filter((c) => c.loot === lvl).map((c) =>
-             cardHtml(c.id, { cls: `clickable ${myLoot.includes(c.id) ? 'chosen' : ''}`, attrs: `data-action="loot" data-id="${c.id}"` })).join('')}</div>`).join('')}
+             lootCard(c)).join('')}</div>`).join('')}
          ${canRemove ? '<p class="hint">Tu peux retirer une carte de ton paquet : clique dessus ci-dessus.</p>' : ''}` : '';
   const deckSize = starterOnly ? 12 : 20 + myLoot.length - (me.removed || []).length;
   const deck = me.hero && me.cls
@@ -245,7 +281,7 @@ function renderLobby() {
          <h3>Cartes avancées <small>(8)${starterOnly ? ' — pas utilisées contre M. Pantin' : ''}</small></h3>
          <div class="cards ${starterOnly ? 'dim' : ''}">${[...catalog.heroes[me.hero].advanced, ...catalog.classes[me.cls].advanced].map(deckCard).join('')}</div>
          ${lootBlock}
-         <p class="legend-conf">📷 carte vue en photo · ≈ valeur probable · ? carte non retrouvée</p>
+         <p class="legend-conf">Survole une carte pour l'agrandir.</p>
        </section>`
     : '';
 
@@ -261,24 +297,21 @@ function renderLobby() {
       <div class="scene">
         <div class="tablet">
           <div class="screen-wrap">
-            <div class="screen lobby-screen" style="background-image:url(${BOSS_IMG[boss.art] || ''})">
+            <div class="screen lobby-screen art-${boss.art}" ${bossBg(boss.art)}>
               <div class="lobby-center">
-                <h2 class="screen-title">Choisissez vos places</h2>
-                <p class="screen-sub">Cliquez sur une place au bord de l'écran, là où vous seriez assis autour de la tablette. L'ordre du tour suit le sens des aiguilles d'une montre.</p>
+                <h2 class="screen-title">Choisissez votre boss</h2>
+                <p class="screen-sub">Chacun s'assoit en arrivant, dans le sens des aiguilles d'une montre (c'est l'ordre du tour). Clique sur ta place pour choisir ton héros, ou sur un « + » pour changer de place.</p>
                 <div class="boss-pick">
                   ${Object.values(catalog.bosses).map((b) => `
-                    <button class="boss-card ${state.boss === b.id ? 'sel' : ''} ${b.order > state.beaten ? 'locked' : ''}" data-action="boss" data-id="${b.id}" ${isHost ? '' : 'disabled'}
-                            title="${b.order > state.beaten ? 'Pas encore débloqué dans la campagne' : b.order < state.beaten ? 'Déjà vaincu' : 'Prochain boss de la campagne'}">
-                      <span class="boss-thumb" style="background-image:url(${BOSS_IMG[b.art] || ''})"></span>
+                    <button class="boss-card ${state.boss === b.id ? 'sel' : ''} ${b.order > state.beaten ? 'locked' : ''}" data-action="boss" data-id="${b.id}" ${isHost && b.order <= state.beaten ? '' : 'disabled'}
+                            title="${b.order > state.beaten ? 'Se débloque en battant le boss précédent' : b.order < state.beaten ? 'Déjà vaincu' : 'Prochain boss de la campagne'}">
+                      <span class="boss-thumb art-${b.art}" ${bossBg(b.art)}></span>
                       ${b.order < state.beaten ? '<span class="beaten">✔</span>' : b.order > state.beaten ? '<span class="beaten lock">🔒</span>' : ''}
                       <span class="name-band">${esc(b.name)}</span>
                       <span class="stats top"><span class="stat" title="Enragé au tour ${b.enrageRound}">${ic('skull')}<b>${b.enrageRound}</b></span></span>
                     </button>`).join('')}
                 </div>
                 <div class="lobby-controls">
-                  <select data-action="campaign" ${isHost ? '' : 'disabled'} title="Progression de la campagne (avance toute seule après chaque victoire)">
-                    ${CAMPAIGN_STEPS.map((label, k) => `<option value="${k}" ${state.beaten === k ? 'selected' : ''}>${label}</option>`).join('')}
-                  </select>
                   <select data-action="difficulty" ${isHost ? '' : 'disabled'}>
                     ${Object.entries(catalog.difficulties).map(([id, d]) => `<option value="${id}" ${state.difficulty === id ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}
                   </select>
@@ -300,7 +333,7 @@ function renderLobby() {
         </section>
         ${deck}
       </div>
-      ${ui.seatModal !== null ? seatModal(me) : ''}
+      ${ui.seatModal ? seatModal(me) : lootModal}
     </div>`;
 }
 
@@ -313,41 +346,41 @@ function cardType(card) {
   return 'util';
 }
 
-// Médaillons de valeur en haut à gauche de la carte, comme sur les vraies cartes.
-function badges(card) {
-  const out = [];
-  const val = (v) => (v === 'd3' ? '1-3' : v === 'round' ? 'T' : v === 'myAttack' ? '?' : v);
-  for (const e of card.effects) {
-    if (out.length >= 4) break;
-    switch (e.t) {
-      case 'attack': out.push(`<span class="badge b-${e.dmg}">${ic(e.dmg)}<b>${val(e.v)}</b></span>`); break;
-      case 'support': out.push(`<span class="badge b-${e.dmg} support">${ic(e.dmg)}<b>${val(e.v)}</b></span>`); break;
-      case 'protect': out.push(`<span class="badge b-protect">${ic('protect')}<b>${e.v}</b></span>`); break;
-      case 'heal': out.push(`<span class="badge b-heal">${ic('heal')}<b>+${e.v}</b></span>`); break;
-      case 'draw': out.push(`<span class="badge b-util">${ic('draw')}<b>+${e.v}</b></span>`); break;
-      case 'cleanse': out.push(`<span class="badge b-util">${ic('cleanse')}<b>${e.v}</b></span>`); break;
-      case 'selfDamage': out.push(`<span class="badge b-hurt">${ic('broken-heart')}<b>-${e.v}</b></span>`); break;
-      case 'bossLoss': out.push(`<span class="badge b-hurt">${ic('broken-heart')}<b>${e.v}</b></span>`); break;
-      case 'poisonBoss': out.push(`<span class="badge b-poison">${ic('poison')}<b>${e.v}</b></span>`); break;
-      case 'lightning': out.push(`<span class="badge round">${ic('lightning')}</span>`); break;
-      case 'grant': out.push('<span class="badge round grant">✱</span>'); break;
-      default: break;
+// Infobulle d'une carte : type, effets détaillés et rappel de règle utile.
+const CARD_KIND = { melee: 'mêlée', ranged: 'à distance', magic: 'magique' };
+function cardTip(c) {
+  const g = state && state.game;
+  const lines = [c.name];
+  const origin = c.loot ? `Carte de butin ★${c.loot}` : c.adv ? 'Carte avancée (ajoutée après le tutoriel)' : 'Carte de départ';
+  lines.push(origin);
+  lines.push('');
+  for (const t of c.text) lines.push(`• ${plain(t)}`);
+  const hints = [];
+  for (const e of c.effects) {
+    if (e.t === 'support') {
+      const on = g && g.typesThisRound && g.typesThisRound.includes(e.dmg);
+      hints.push(`Soutien ${CARD_KIND[e.dmg]} : n'inflige des dégâts que si une Attaque ${CARD_KIND[e.dmg]} a déjà été jouée ce tour${g ? (on ? ' → ACTIF maintenant ✔' : ' → pas encore actif ✘') : ''}.`);
     }
+    if (e.t === 'attack') hints.push(`Les dégâts touchent d'abord le bouclier ${CARD_KIND[e.dmg]} du boss, l'excédent va dans sa vie.`);
+    if (e.t === 'protect') hints.push("Protection : réduit l'attaque prévue du boss contre le héros choisi (toi compris). Ramenée à 0, elle annule aussi son effet (Poison…).");
+    if (e.t === 'lightning') hints.push('⚡ Éclair : tu effectues tout de suite une action de plus.');
   }
-  return out.join('');
+  const uniq = [...new Set(hints)];
+  if (uniq.length) lines.push('', ...uniq);
+  if (c.exile) lines.push('', 'Retirée du combat après usage.');
+  return lines.join('\n');
 }
 
+// Les cartes s'affichent avec la photo de la vraie carte (public/cards/<id>.webp) ;
+// le texte détaillé est dans l'infobulle et pour les lecteurs d'écran.
 function cardHtml(id, opts = {}) {
   const c = catalog.cards[id];
   const type = cardType(c);
-  const conf = { 'sûr': ['📷', 'vue en photo'], probable: ['≈', 'valeur probable'], 'supposé': ['?', 'carte non retrouvée, valeurs supposées'] }[c.conf] || ['?', ''];
-  const title = `${c.en && c.en !== '?' ? c.en + ' — ' : ''}${conf[1]}`;
+  const title = cardTip(c);
   return `
-    <div class="card t-${type} ${c.adv ? 'adv' : ''} ${opts.cls || ''}" ${opts.attrs || ''} title="${esc(title)}">
-      <div class="card-name">${esc(c.name)}</div>
-      <div class="card-art">${ic(TYPE_ICON[type], 'art-icon')}<div class="badges">${badges(c)}</div></div>
-      <div class="card-text">${c.text.map((t) => `<p>${esc(plain(t))}</p>`).join('')}</div>
-      <div class="card-foot"><span>${c.adv ? '★' : ''}</span><span>${conf[0]}</span></div>
+    <div class="card photo t-${type} ${c.adv ? 'adv' : ''} ${opts.cls || ''}" ${opts.attrs || ''}>
+      <img src="cards/${esc(id)}.webp" alt="${esc(title)}" loading="lazy" draggable="false" onerror="this.parentNode.classList.add('noimg')">
+      <div class="card-fallback"><b>${esc(c.name)}</b>${c.text.map((t) => `<p>${esc(plain(t))}</p>`).join('')}${c.loot ? `<small>Butin ★${c.loot}</small>` : ''}</div>
     </div>`;
 }
 
@@ -366,27 +399,53 @@ function renderGame() {
       (isActive(i) && h.turnActions > 1 ? '<i class="dot bonus"></i>'.repeat(h.turnActions - 1) : '')
     : '');
   const tokens = (h) => `
-    ${h.poison ? `<span class="tok poison" title="Jetons Poison">${ic('poison')}${h.poison}</span>` : ''}
-    ${h.raven ? '<span class="tok" title="Malédiction du corbeau posée">🐦‍⬛</span>' : ''}
-    ${h.nextMods ? `<span class="tok" title="Bonus sur la prochaine Attaque">${ic('magic')}</span>` : ''}
+    ${h.poison ? `<span class="tok poison" title="Poison × ${h.poison}\nPerd 1 PV par jeton à chaque phase 5 (états).\nLes jetons restent jusqu'à la fin du combat, sauf effets qui les retirent.">${ic('poison')}${h.poison}</span>` : ''}
+    ${h.panic ? `<span class="tok panic" title="Jetons Panique : les cartes de la main sont jouées au hasard (1 jeton retiré par carte jouée)">😱${h.panic}</span>` : ''}
+    ${h.paralysis ? `<span class="tok paralysis" title="Jetons Paralysie : limite de main -${h.paralysis}">🧊${h.paralysis}</span>` : ''}
+    ${h.raven ? (h.mine
+      ? `<button class="tok raven-tok ${h.ravenKeep ? 'kept' : ''}" data-action="raven" title="${h.ravenKeep ? 'Corbeau gardé : il ne se déclenchera pas. Clique pour l’utiliser contre la prochaine capacité du boss qui te vise.' : 'Corbeau prêt : il annulera la prochaine capacité du boss qui te vise. Clique pour le garder.'}">🐦‍⬛ ${h.ravenKeep ? 'gardé' : 'prêt'}</button>`
+      : `<span class="tok" title="Malédiction du corbeau posée${h.ravenKeep ? ' (gardée)' : ''}">🐦‍⬛</span>`) : ''}
+    ${h.nextMods ? `<span class="tok" title="Bonus sur la prochaine Attaque\n(Diadème : +3 de force · Phénix-Hibou : soigne de la force de l'Attaque)\nPerdu si la carte suivante n'est pas une Attaque.">${ic('magic')}</span>` : ''}
     ${g.phase === 'discard' ? `<span class="tok">${h.ready ? '✔ prêt' : '… défausse'}</span>` : ''}`;
   const attackOf = (i) => {
     const atk = g.attacks[i] || { value: 0, effects: {} };
-    return `<div class="seat-attack ${atk.value === 0 ? 'zero' : ''}" title="Attaque prévue du boss contre ce héros">
+    const fxs = [atk.effects.poison ? `+ ${atk.effects.poison} Poison` : '', atk.effects.panic ? `+ ${atk.effects.panic} Panique` : '',
+      atk.effects.paralysis ? `+ ${atk.effects.paralysis} Paralysie` : '', atk.effects.curse ? '+ 1 malédiction' : ''].filter(Boolean);
+    const tip = [`Attaque prévue du boss : ${atk.value} dégât${atk.value > 1 ? 's' : ''}`, ...fxs, '',
+      atk.value === 0 ? 'Bloquée : ce héros ne subira rien (ni les effets).' : "Elle frappe en phase 4. Réduis-la avec des Protections ; à 0, ses effets (Poison, Panique…) sont annulés aussi."].join('\n');
+    return `<div class="seat-attack ${atk.value === 0 ? 'zero' : ''}" title="${esc(tip)}">
       <span>${ic('fangs')}<b>${atk.value}</b></span>
       ${atk.effects.poison ? `<span class="fx">${ic('poison')}<b>${atk.effects.poison}</b></span>` : ''}
+      ${atk.effects.curse ? `<span class="fx curse" title="Le héros recevra une malédiction s'il est touché">${ic('skull')}</span>` : ''}
+      ${atk.effects.panic ? `<span class="fx panic" title="Panique si le héros est touché">😱<b>${atk.effects.panic}</b></span>` : ''}
+      ${atk.effects.paralysis ? `<span class="fx paralysis" title="Paralysie si le héros est touché">🧊<b>${atk.effects.paralysis}</b></span>` : ''}
     </div>`;
   };
   const voting = g.phase === 'action' && g.awaitingStarter && !g.result;
-  const heroAttrs = (h, i, cls) => `class="${cls} ${isActive(i) ? 'active' : ''} ${h.mine ? 'mine' : ''} ${targeting ? 'targetable' : ''} ${voting ? 'votable' : ''} ${voting && g.myVote === i ? 'voted' : ''} ${online(h) ? '' : 'offline'}"
-    data-hero="${i}" ${targeting ? `data-action="target" data-idx="${i}"` : voting ? `data-action="vote" data-idx="${i}"` : ''}
-    title="${esc(h.name)} — ${esc(catalog.heroes[h.hero].name)} ${esc(catalog.classes[h.cls].name)}"`;
+  const tieable = (i) => !!g.tie && g.tie.candidates.includes(i);
+  const heroAttrs = (h, i, cls) => `class="${cls} ${isActive(i) ? 'active' : ''} ${h.mine ? 'mine' : ''} ${targeting ? 'targetable' : ''} ${voting ? 'votable' : ''} ${voting && g.myVote === null ? 'need-vote' : ''} ${voting && g.myVote === i ? 'voted' : ''} ${tieable(i) ? 'need-vote tie-pick' : ''} ${online(h) ? '' : 'offline'}"
+    data-hero="${i}" ${targeting ? `data-action="target" data-idx="${i}"` : voting ? `data-action="vote" data-idx="${i}"` : tieable(i) ? `data-action="tie" data-idx="${i}"` : ''}
+    title="${esc(heroTip(h, i))}"`;
+  const heroTip = (h, i) => [
+    `${h.name}${h.mine ? ' (toi)' : ''} — ${catalog.heroes[h.hero].name} · ${catalog.classes[h.cls].name}`,
+    `❤️ ${h.hp} / ${h.maxHp} PV`,
+    `🃏 ${h.handCount} carte(s) en main · limite ${h.handLimit}`,
+    `📚 Pioche ${h.drawCount} · défausse ${h.discardCount}${h.exiledCount ? ` · retirées ${h.exiledCount}` : ''}`,
+    g.phase === 'action' ? `Tours restants cette manche : ${h.turnsLeft} / 3` : '',
+    h.poison ? `☠️ Poison ${h.poison} : perd ${h.poison} PV à chaque phase 5` : '',
+    h.panic ? `😱 Panique ${h.panic} : cartes jouées au hasard` : '',
+    h.paralysis ? `🧊 Paralysie ${h.paralysis} : limite de main -${h.paralysis}` : '',
+    ...h.curses.map((c) => `💀 ${c.name} : ${c.text}`),
+    h.pendingCurses ? `🂠 ${h.pendingCurses} malédiction(s) face cachée (révélée(s) au prochain tour)` : '',
+    h.raven ? `🐦‍⬛ Malédiction du corbeau ${h.ravenKeep ? 'gardée' : 'prête'}` : '',
+    '', targeting ? 'Clique pour choisir ce héros comme cible.' : voting ? 'Clique pour voter : ce héros commence la manche.' : '',
+  ].filter((x, k, a) => x !== '' || (k > 0 && a[k - 1] !== '')).join('\n').trim();
 
   // Héros en fiche, alignés sous le boss dans l'ordre du tour.
   const heroCard = (h, i) => `
     <div ${heroAttrs(h, i, 'hero-card-row')}>
       <span class="order-num">${i + 1}</span>
-      <div class="seat-portrait">${portrait(h.hero, 'sq')}<span class="seat-hp" title="Points de vie">${h.hp}</span></div>
+      <div class="seat-portrait">${portrait(h.hero, 'sq')}<span class="seat-hp" title="Points de vie : ${h.hp} / ${h.maxHp}\nÀ 0, le combat est perdu pour tout le groupe.">${h.hp}</span></div>
       <div class="hcr-body">
         <div class="hcr-name">${esc(h.name)}${h.mine ? ' <small>(toi)</small>' : ''}
           ${isActive(i) ? '<span class="now">joue</span>' : ''}</div>
@@ -407,6 +466,13 @@ function renderGame() {
   if (g.result) {
     message = g.result === 'win' ? 'Victoire !' : 'Défaite…';
     actions = '<button class="btn primary" data-action="lobby">Retour au salon</button>';
+  } else if (g.tie) {
+    message = `Égalité : qui subit « ${g.tie.label} » ?`;
+    actions = '<span>Les héros ex æquo clignotent : cliquez sur celui qui subit la capacité.</span>';
+  } else if (g.step) {
+    message = g.step.title;
+    actions = `<div class="step"><ul>${g.step.lines.map((l) => `<li class="k-${esc(l.k)}">${esc(l.m)}</li>`).join('')}</ul>
+      <button class="btn go" data-action="continue" data-step="${g.step.id}">Continuer ▶</button></div>`;
   } else if (ui.pending) {
     message = `Choisis un héros : ${plain(ui.pending.steps[ui.pending.targets.length])}`;
     actions = '<span>Clique sur un héros.</span><button class="btn small ghost" data-action="cancel">Annuler</button>';
@@ -416,9 +482,11 @@ function renderGame() {
     if (who.mine) {
       const what = g.choice.from === 'dejavu'
         ? 'Déjà-vu : choisis une carte de ta défausse à rejouer (elle sera retirée du combat)'
-        : 'Masque de clairvoyance : choisis la carte à jouer (les autres retournent sur ta pioche)';
+        : g.choice.from === 'reveal'
+          ? 'Carte révélée du dessus de ta pioche : clique dessus puis choisis sa cible'
+          : 'Masque de clairvoyance : choisis la carte à jouer (les autres retournent sur ta pioche)';
       actions = `<div class="choice"><b>${what}</b>
-        <div class="cards">${g.choice.options.map((c) => cardHtml(c.id, { cls: 'clickable', attrs: `data-action="choose" data-uid="${esc(c.uid)}"` })).join('')}</div>
+        <div class="cards">${g.choice.options.map((c) => cardHtml(c.id, { cls: `clickable ${casting(c.uid)}`, attrs: `data-action="choose" data-uid="${esc(c.uid)}"` })).join('')}</div>
         ${g.choice.allowTop ? '<button class="btn small" data-action="choose" data-uid="__top">Jouer plutôt la carte du dessus de ma pioche</button>' : ''}
         ${g.choice.from === 'mask' ? `<button class="btn small ghost" data-action="mask-under">Les 2 autres cartes iront ${ui.maskUnder ? '<b>sous</b>' : '<b>sur</b>'} ma pioche (changer)</button>` : ''}</div>`;
     }
@@ -441,40 +509,58 @@ function renderGame() {
   }
 
   const handClickable = (myTurn && !targeting) || (g.phase === 'discard' && !me.ready);
-  const hand = me.hand.map((c) => cardHtml(c.id, {
-    cls: `${handClickable ? 'clickable' : ''} ${ui.discardSel.has(c.uid) ? 'selected' : ''}`,
-    attrs: handClickable ? `data-action="card" data-uid="${esc(c.uid)}"` : '',
+  // Éventail : les cartes pivotent autour du centre de la main, comme tenues en main.
+  const mid = (me.hand.length - 1) / 2;
+  const fan = (k) => `--rot:${((k - mid) * 2.5).toFixed(1)}deg;--dy:${Math.round((k - mid) ** 2 * 2.5)}px`;
+  const hand = me.hand.map((c, k) => cardHtml(c.id, {
+    cls: `${handClickable ? 'clickable' : ''} ${ui.discardSel.has(c.uid) ? 'selected' : ''} ${casting(c.uid)}`,
+    attrs: `${handClickable ? `data-action="card" data-uid="${esc(c.uid)}"` : ''} style="${fan(k)}"`,
   })).join('');
 
   const items = g.items ? `
     <div class="items">
-      <button class="item" data-action="item" data-item="backpack" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.backpack.text)}">
+      <button class="item photo-item" style="background-image:url(cards/item_backpack.webp)" data-action="item" data-item="backpack" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.backpack.text)}">
         ${ic('backpack', 'big')}<span>${esc(catalog.items.backpack.name)}</span><small>∞</small></button>
-      ${g.items.charm ? `<button class="item" data-action="item" data-item="charm" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.charm.text)}">
+      ${g.items.charm ? `<button class="item photo-item" style="background-image:url(cards/item_charm.webp)" data-action="item" data-item="charm" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.charm.text)}">
         <span class="big-emoji">🍀</span><span>${esc(catalog.items.charm.name)}</span><small>∞</small></button>` : ''}
-      <button class="item" data-action="item" data-item="potion" ${myTurn && !targeting && g.items.potions > 0 ? '' : 'disabled'} title="${esc(catalog.items.potion.text)}">
+      <button class="item photo-item ${ui.pending && ui.pending.item === 'potion' ? 'casting' : ''}" style="background-image:url(cards/item_potion.webp)" data-action="item" data-item="potion" ${myTurn && !targeting && g.items.potions > 0 ? '' : 'disabled'} title="${esc(catalog.items.potion.text)}">
         ${ic('potion', 'big')}<span>${esc(catalog.items.potion.name)}</span><small>× ${g.items.potions}</small></button>
+      ${g.items.medbag ? `<button class="item emoji-item ${ui.pending && ui.pending.item === 'medbag' ? 'casting' : ''}" data-action="item" data-item="medbag" ${myTurn && !targeting ? '' : 'disabled'} title="${esc(catalog.items.medbag.text)}">
+        <span class="big-emoji">💼</span><span>${esc(catalog.items.medbag.name)}</span><small>∞</small></button>` : ''}
+      ${g.items.waterskin ? `<button class="item emoji-item ${ui.pending && ui.pending.item === 'waterskin' ? 'casting' : ''}" data-action="item" data-item="waterskin" ${myTurn && !targeting && g.items.waterskins > 0 ? '' : 'disabled'} title="${esc(catalog.items.waterskin.text)}">
+        <span class="big-emoji">🫗</span><span>${esc(catalog.items.waterskin.name)}</span><small>× ${g.items.waterskins}</small></button>` : ''}
     </div>` : '';
 
+  const shieldTip = (t) => [
+    `Bouclier ${DMG_NAME[t]} : ${b.shields[t]}${b.shields[t] ? '' : ' (aucun ou détruit)'}`,
+    b.shields[t] ? `Les dégâts ${CARD_KIND[t]} touchent d'abord ce bouclier ; l'excédent va dans la vie du boss.` : `Pas de bouclier : les dégâts ${CARD_KIND[t]} vont directement dans la vie du boss jusqu'à la fin du tour.`,
+    b.toxic === t ? '☠️ Venimeux : le toucher donne 1 Poison.' : '',
+    (b.cursedShields || []).includes(t) ? '💀 Maudit : le toucher donne une malédiction.' : '',
+    (b.spiked || []).includes(t) ? '✸ À pointes : le toucher blesse l’attaquant.' : '',
+    g.typesThisRound.includes(t) ? `✔ Une Attaque ${CARD_KIND[t]} a été jouée ce tour : les Soutiens ${CARD_KIND[t]} fonctionnent.` : `✘ Aucune Attaque ${CARD_KIND[t]} ce tour : les Soutiens ${CARD_KIND[t]} ne font rien.`,
+    'Les boucliers sont renouvelés à chaque phase 2.',
+  ].filter(Boolean).join('\n');
   // Boucliers en écussons : nombre au centre, type de dégâts en dessous.
   const shield = (t) => `
-    <div class="crest s-${t} ${b.shields[t] ? '' : 'broken'} ${g.typesThisRound.includes(t) ? 'lit' : ''} ${b.toxic === t ? 'toxic' : ''}"
-         title="Bouclier ${DMG_NAME[t]}${b.toxic === t ? ' — venimeux : le toucher empoisonne' : ''}${g.typesThisRound.includes(t) ? ' — Attaque jouée : les Soutiens fonctionnent' : ''}">
-      <div class="crest-shield ${b.cursedShield === t ? 'cursed' : ''}" title="${b.cursedShield === t ? 'Bouclier maudit : le toucher donne une malédiction' : ''}">${ic(b.toxic === t ? 'poison' : 'skull', 'crest-mark')}<b>${b.shields[t]}</b></div>
+    <div class="crest s-${t} ${b.shields[t] ? '' : 'broken'} ${g.typesThisRound.includes(t) ? 'lit' : ''} ${b.toxic === t ? 'toxic' : ''} ${(b.spiked || []).includes(t) ? 'spiked' : ''}"
+         title="${esc(shieldTip(t))}">
+      <div class="crest-shield ${(b.cursedShields || []).includes(t) ? 'cursed' : ''}">${ic(b.toxic === t ? 'poison' : 'skull', 'crest-mark')}<b>${b.shields[t]}</b></div>
       <div class="crest-type">${ic(t)}</div>
     </div>`;
 
   // L'écran du boss : illustration, nom, message, boucliers, vie.
   const bossScreen = `
-    <div class="screen" style="background-image:url(${BOSS_IMG[b.art] || ''})">
+    <div class="screen art-${b.art}" ${bossBg(b.art)}>
       ${g.result ? '' : `<button class="corner tl skull-btn" data-action="giveup" title="Abandonner le combat">${ic('skull')}</button>`}
       <div class="boss-title">${esc(b.name)}
-        <span class="enrage ${b.enraged ? 'on' : ''}" title="${b.enraged ? 'Enragé !' : `Enragé au tour ${b.enrageAt}`}">${ic('skull')}<b>${b.enraged ? '!' : b.enrageAt}</b></span>
+        <span class="enrage ${b.enraged ? 'on' : ''}" title="${b.enraged ? 'Enragé !\nLa force de ses attaques augmente à chaque tour.' : `Enragé au tour ${b.enrageAt}\nEnsuite, la force de ses attaques augmente à chaque tour : finissez-le avant !`}">${ic('skull')}<b>${b.enraged ? '!' : b.enrageAt}</b></span>
       </div>
+      ${(g.gauges || []).length ? `<div class="gauges">${g.gauges.map((x) => `<div class="gauge g-${esc(x.kind)}" title="${esc(`${x.label} : ${x.value} / ${x.max}${GAUGE_HELP[x.kind] ? `\n${GAUGE_HELP[x.kind]}` : ''}`)}">
+        <span>${esc(x.label)}</span><i style="--p:${Math.round((100 * Math.min(x.value, x.max)) / Math.max(1, x.max))}%"></i></div>`).join('')}</div>` : ''}
       <div class="screen-message ${g.result || ''}">${esc(message)}</div>
       <div class="crests">${['melee', 'ranged', 'magic'].map(shield).join('')}</div>
-      <div class="corner bl round-box" title="Tour">${ic('hourglass')}<b>${g.round}</b></div>
-      <div class="corner br heart-box" title="Vie du boss : ${b.life} / ${b.maxLife}">
+      <div class="corner bl round-box" title="${esc(`Tour ${g.round}${g.phaseLabel ? ` · phase : ${g.phaseLabel}` : ''}\nUn tour = 1 Planification · 2 Boucliers · 3 Actions (3 par héros) · 4 Attaque du boss · 5 États · 6 Défausse · 7 Pioche.\n${b.enraged ? 'Le boss est enragé.' : `Enragé au tour ${b.enrageAt}.`}`)}">${ic('hourglass')}<b>${g.round}</b></div>
+      <div class="corner br heart-box" title="${esc(`Vie du boss : ${b.life} / ${b.maxLife}${b.poison ? `\n☠️ Poison ${b.poison} : il perd ${b.poison} PV en phase 5.` : ''}${b.antiBoss ? '\n🤖 Anti-Boss-3000 : sa prochaine capacité sera empêchée.' : ''}\nVictoire quand elle tombe à 0.`)}">
         ${b.poison ? `<span class="boss-tok" title="Poison sur le boss">${ic('poison')}${b.poison}</span>` : ''}
         ${b.antiBoss ? `<span class="boss-tok" title="Anti-Boss-3000 actif">🤖${b.antiBoss}</span>` : ''}
         <b>${b.life}</b><span class="heart">${ic('heal')}</span>
@@ -485,7 +571,7 @@ function renderGame() {
     <div class="abilities parchment">
       <h3>Capacités du boss</h3>
       ${g.discovered.length
-        ? `<ul>${g.discovered.map((a) => `<li><span class="ab ab-${a.kind}" title="${AB_LABEL[a.kind] || ''}">${ic(AB_ICON[a.kind] || 'skull')}</span><div><b>${esc(a.name)}</b><span>${esc(a.text)}</span></div></li>`).join('')}</ul>`
+        ? `<ul>${g.discovered.map((a) => `<li><span class="ab ab-${a.kind}" title="${esc(`${AB_LABEL[a.kind] || ''}${AB_HELP[a.kind] ? `\n${AB_HELP[a.kind]}` : ''}`)}">${ic(AB_ICON[a.kind] || 'skull')}</span><div><b>${esc(a.name)}</b><span>${esc(a.text)}</span></div></li>`).join('')}</ul>`
         : '<p class="muted">Aucune découverte pour l’instant. Observez le boss !</p>'}
     </div>`;
   const log = `
@@ -500,10 +586,9 @@ function renderGame() {
     <div class="game-grid">
       <div class="main">
         <div class="boss-banner ${b.enraged ? 'enraged' : ''}"><div class="screen-wrap">${bossScreen}</div></div>
-        <div class="hero-row">${g.heroes.map((h, i) => heroCard(h, i)).join('<span class="row-arrow">➜</span>')}</div>
-        ${actionBar}${handZone}
+        <div class="table-bottom">${actionBar}${handZone}</div>
       </div>
-      <aside class="side">${abilities}${log}</aside>
+      <aside class="side">${abilities}<div class="hero-row">${g.heroes.map((h, i) => heroCard(h, i)).join('<span class="row-arrow">➜</span>')}</div>${log}</aside>
     </div>`;
 
   $app.innerHTML = `
@@ -526,6 +611,12 @@ function targetSteps(card) {
     .map(({ label }) => label);
 }
 
+// Classe de la carte en cours d'utilisation (ciblage en attente) : aura animée.
+const casting = (uid) => (ui.pending && ui.pending.uid === uid ? 'casting' : '');
+
+// Objets qui demandent de choisir un héros.
+const ITEM_TARGET = { potion: 'Potion de soin (+8 PV)', medbag: "Sac de remèdes (retire 2 jetons d'état)", waterskin: 'Outre (+3 PV)' };
+
 function startPlay(uid, kind = 'card', id = null) {
   const meHero = state.game.heroes.find((h) => h.mine);
   if (kind === 'card' && meHero.randomPlay) return act({ type: 'play', uid, targets: [] });
@@ -544,7 +635,7 @@ function pickTarget(idx) {
   ui.pending = null;
   if (p.kind === 'card') act({ type: 'play', uid: p.uid, targets: p.targets });
   else if (p.kind === 'choose') act({ type: 'choose', uid: p.uid, targets: p.targets, under: !!ui.maskUnder });
-  else act({ type: 'item', item: 'potion', target: p.targets[0] });
+  else act({ type: 'item', item: p.item, target: p.targets[0] });
   render();
 }
 
@@ -592,13 +683,9 @@ document.addEventListener('click', (ev) => {
       socket.emit('pick', { [el.dataset.kind]: val });
       break;
     }
-    case 'seat': ui.seatModal = Number(el.dataset.seat); render(); break;
-    case 'sit':
-      socket.emit('pick', { seat: ui.seatModal });
-      ui.seatModal = null;
-      break;
+    case 'seat': socket.emit('pick', { seat: Number(el.dataset.seat) }); break;
+    case 'edit-seat': ui.seatModal = true; render(); break;
     case 'close-modal': ui.seatModal = null; render(); break;
-    case 'unseat': socket.emit('pick', { seat: null }); break;
     case 'kick':
       if (confirm('Retirer ce joueur du salon ?')) socket.emit('kick', { id: el.dataset.id });
       break;
@@ -606,6 +693,9 @@ document.addEventListener('click', (ev) => {
     case 'start': socket.emit('start'); break;
     case 'vote': act({ type: 'vote', hero: Number(el.dataset.idx) }); break;
     case 'mute': Sfx.toggle(); render(); break;
+    case 'continue': act({ type: 'continue', step: Number(el.dataset.step) }); break;
+    case 'tie': act({ type: 'tie', hero: Number(el.dataset.idx) }); break;
+    case 'raven': act({ type: 'raven', keep: !state.game.heroes.find((h) => h.mine).ravenKeep }); break;
     case 'mask-under': ui.maskUnder = !ui.maskUnder; render(); break;
     case 'loot': {
       const me = state.players.find((p) => p.id === token);
@@ -643,8 +733,8 @@ document.addEventListener('click', (ev) => {
     case 'target': pickTarget(Number(el.dataset.idx)); break;
     case 'cancel': ui.pending = null; render(); break;
     case 'item':
-      if (el.dataset.item === 'potion') {
-        ui.pending = { kind: 'potion', steps: ['Potion de soin (+8 PV)'], targets: [] };
+      if (ITEM_TARGET[el.dataset.item]) {
+        ui.pending = { kind: 'item', item: el.dataset.item, steps: [ITEM_TARGET[el.dataset.item]], targets: [] };
         render();
       } else {
         act({ type: 'item', item: el.dataset.item });
@@ -661,9 +751,50 @@ document.addEventListener('click', (ev) => {
 
 document.addEventListener('change', (ev) => {
   if (ev.target.dataset.action === 'difficulty') socket.emit('settings', { difficulty: ev.target.value });
-  if (ev.target.dataset.action === 'campaign') socket.emit('settings', { beaten: Number(ev.target.value) });
 });
 
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && ev.target.id === 'code') document.querySelector('[data-action="join"]')?.click();
 });
+
+// ---------- Infobulles stylées : remplacent celles du navigateur (attribut title) ----------
+// Première ligne en titre, lignes suivantes en détail ; elles suivent la souris sans sortir de l'écran.
+const $tip = document.createElement('div');
+$tip.id = 'tip';
+document.body.appendChild($tip);
+let tipEl = null;
+function hideTip() {
+  if (tipEl && tipEl.dataset.tip !== undefined) { tipEl.setAttribute('title', tipEl.dataset.tip); delete tipEl.dataset.tip; }
+  tipEl = null;
+  $tip.classList.remove('on');
+}
+function placeTip(x, y) {
+  const r = $tip.getBoundingClientRect();
+  let left = x + 16;
+  let top = y + 18;
+  if (left + r.width > window.innerWidth - 8) left = x - r.width - 16;
+  if (top + r.height > window.innerHeight - 8) top = y - r.height - 14;
+  $tip.style.left = `${Math.max(8, left)}px`;
+  $tip.style.top = `${Math.max(8, top)}px`;
+}
+function showTip(ev) {
+  // [data-tip] : l'élément déjà survolé (son title est mis de côté pendant l'affichage).
+  const el = ev.target.closest('[title], [data-tip]');
+  if (el === tipEl) return;
+  hideTip();
+  if (!el || !(el.getAttribute('title') || el.dataset.tip)) return;
+  tipEl = el;
+  const text = el.getAttribute('title') || el.dataset.tip;
+  el.dataset.tip = text;
+  el.removeAttribute('title'); // pas d'infobulle native en double
+  const [head, ...rest] = text.split('\n');
+  $tip.innerHTML = `<b>${esc(head)}</b>${rest.length ? `<div>${rest.map((l) => (l.trim() ? esc(l) : '<hr>')).join('<br>')}</div>` : ''}`;
+  $tip.classList.add('on');
+  placeTip(ev.clientX, ev.clientY);
+}
+document.addEventListener('mouseover', showTip);
+// Après un rafraîchissement de l'écran, l'élément survolé est recréé : on rattache l'infobulle au mouvement suivant.
+document.addEventListener('mousemove', (ev) => { if (tipEl) placeTip(ev.clientX, ev.clientY); else showTip(ev); });
+document.addEventListener('mousedown', hideTip);
+// L'écran est redessiné à chaque mise à jour : l'élément survolé peut disparaître.
+new MutationObserver(() => { if (tipEl && !document.body.contains(tipEl)) hideTip(); }).observe(document.getElementById('app') || document.body, { childList: true, subtree: true });

@@ -149,6 +149,8 @@ label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-we
 .host { color: var(--gold-dark); }
 
 .portrait { background: center 20% / cover no-repeat #2c2016; }
+/* Les portraits viennent des cartes Héros : on cadre sur le visage, au-dessus du bandeau du nom. */
+.portrait[style*="cards/hero_"] { background-size: 150%; background-position: 50% 22%; }
 .portrait.no-img { display: grid; place-items: center; color: #e8d3a6; background: radial-gradient(circle, #4f6b3a, #22301a); font-size: 2em; }
 .portrait.mini { width: 40px; height: 40px; border-radius: 50%; border: 2px solid #8a6a3d; flex-shrink: 0; font-size: 18px; }
 .portrait.mini.empty { background: #d8c49c; }
@@ -878,6 +880,34 @@ label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-we
 }
 .mute { font-size: 16px; padding: 2px 8px; }
 
+/* ---------- Cartes en photo (public/cards) ---------- */
+.card.photo, .game .card.photo {
+  width: 150px; height: auto !important; min-height: 0; aspect-ratio: 63 / 88;
+  border: 0; border-radius: 9px; background: #1a120d;
+  box-shadow: 0 6px 12px rgba(0,0,0,.5);
+}
+.card.photo img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; pointer-events: none; user-select: none; }
+@media (max-width: 900px) { .card.photo { width: 128px; } }
+@media (min-width: 901px) {
+  .game .card.photo { width: 116px; }
+  .game .action-bar .choice .card.photo { width: auto; height: 150px !important; }
+  /* Survol : la carte grandit nettement pour qu'on lise son texte */
+  .game .hand .card.photo:hover, .game .choice .card.photo:hover { transform: translateY(-110px) scale(2); }
+}
+.parchment .card.photo:hover { transform: scale(1.6); z-index: 10; }
+.parchment .card.photo.clickable:hover { transform: translateY(-6px) scale(1.6); }
+
+/* Héros et classes : vraies cartes */
+.hero-card.photo-pick, .class-banner.photo-pick {
+  padding: 0; background: #1a120d center / cover no-repeat; aspect-ratio: 63 / 88; height: auto;
+}
+.photo-pick > :not(.taken) { display: none; }
+.item.photo-item { padding: 0; width: 84px; aspect-ratio: 63 / 88; background: #1a120d center / cover no-repeat; border-radius: 8px; flex-direction: column; justify-content: flex-end; }
+.item.photo-item > :not(small) { display: none; }
+.item.photo-item small { align-self: flex-end; margin: 4px; padding: 1px 6px; border-radius: 6px; background: rgba(0,0,0,.75); color: #fff; font-weight: 700; }
+.game .item.photo-item { padding: 0; }
+.game .item.photo-item:hover:not(:disabled) { transform: scale(1.9) translateX(-25%); z-index: 10; }
+
 /* ---------- Campagne : butin, cartes retirées, malédictions ---------- */
 .card.removed { opacity: .35; filter: grayscale(1); }
 .card.removed::after { content: '✕ retirée'; position: absolute; inset: 40% 0 auto; text-align: center; font-family: var(--title); font-size: 20px; color: #ff7a6e; text-shadow: 0 2px 2px #000; }
@@ -896,3 +926,252 @@ label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-we
 .big-emoji { font-size: 22px; line-height: 1; }
 .curse-card { width: 54px; height: 76px; display: grid; place-items: center; border-radius: 8px; font-size: 40px; color: #f3d4ff; background: linear-gradient(#5a2a72, #2a0f38); border: 2px solid #b36bd6; box-shadow: 0 0 18px rgba(179,107,214,.8); }
 .num-curse { color: #e2b3ff; font-size: 24px; }
+
+/* ---------- Message central : grand et lisible sur l'illustration du boss ---------- */
+.screen-message {
+  font-size: 48px; width: auto; max-width: 86%; padding: 10px 28px 14px; border-radius: 18px;
+  background: radial-gradient(ellipse at center, rgba(20,8,2,.82) 0%, rgba(20,8,2,.62) 70%, rgba(20,8,2,.15) 100%);
+  box-shadow: 0 0 34px 14px rgba(20,8,2,.45);
+  -webkit-text-stroke: 1.5px #2a0d03;
+  z-index: 3;
+}
+.screen-message:empty { display: none; }
+.screen-message.win, .screen-message.lose { font-size: 72px; }
+@media (min-width: 901px) { .game .screen-message { top: 36%; font-size: 46px; width: auto; max-width: 78%; } }
+@media (max-width: 900px) { .screen-message { font-size: 30px; padding: 8px 16px 10px; } }
+
+/* ---------- Carte en cours d'utilisation (en attente d'une cible) : aura animée ---------- */
+@keyframes cast-aura {
+  0%   { box-shadow: 0 0 0 3px #ffe27a, 0 0 14px 4px rgba(255,200,60,.85), 0 0 34px 10px rgba(255,140,30,.45); }
+  50%  { box-shadow: 0 0 0 3px #fff4c2, 0 0 24px 9px rgba(255,220,90,1),  0 0 56px 20px rgba(255,150,40,.7); }
+  100% { box-shadow: 0 0 0 3px #ffe27a, 0 0 14px 4px rgba(255,200,60,.85), 0 0 34px 10px rgba(255,140,30,.45); }
+}
+@keyframes cast-shine { from { background-position: 160% 0; } to { background-position: -60% 0; } }
+.card.casting, .item.casting {
+  position: relative; z-index: 9;
+  transform: translateY(-22px) scale(1.12) !important;
+  animation: cast-aura 1.1s ease-in-out infinite;
+}
+.card.casting::after, .item.casting::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(110deg, transparent 35%, rgba(255,250,220,.55) 50%, transparent 65%) 0 0 / 250% 100% no-repeat;
+  animation: cast-shine 1.6s linear infinite;
+}
+.game .hand .card.casting:hover { transform: translateY(-22px) scale(1.12) !important; }
+/* Pendant le ciblage, les autres cartes s'effacent un peu */
+.hand:has(.casting) .card:not(.casting) { filter: brightness(.55) saturate(.7); }
+@media (prefers-reduced-motion: reduce) { .card.casting, .item.casting, .card.casting::after, .item.casting::after { animation: none; } }
+
+/* ---------- Héros flottants : celui qui joue, et les choix pendant le vote « qui commence ? » ---------- */
+@keyframes hero-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-9px); }
+}
+@keyframes vote-glow {
+  0%, 100% { box-shadow: 0 0 0 2px #7fd34a, 0 6px 14px rgba(0,0,0,.5), 0 0 10px rgba(127,211,74,.35); }
+  50%      { box-shadow: 0 0 0 3px #b6f58f, 0 14px 22px rgba(0,0,0,.45), 0 0 26px rgba(127,211,74,.85); }
+}
+@keyframes tap-hint {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, 6px); }
+}
+.hero-card-row.active { animation: hero-float 1.8s ease-in-out infinite; }
+.hero-card-row.active.targetable { animation: hero-float 1.8s ease-in-out infinite, target .9s infinite alternate; }
+/* Vote : tant que je n'ai pas voté, chaque héros flotte et invite à cliquer (décalés pour un effet de vague). */
+.hero-card-row.need-vote { border-color: #7fd34a; animation: hero-float 1.6s ease-in-out infinite, vote-glow 1.6s ease-in-out infinite; }
+.hero-row > .hero-card-row.need-vote:nth-of-type(2) { animation-delay: -.4s; }
+.hero-row > .hero-card-row.need-vote:nth-of-type(3) { animation-delay: -.8s; }
+.hero-row > .hero-card-row.need-vote:nth-of-type(4) { animation-delay: -1.2s; }
+.hero-card-row.need-vote::after {
+  content: '👆 Clique pour voter'; position: absolute; left: 50%; bottom: -16px; white-space: nowrap;
+  padding: 1px 10px; border-radius: 10px; font-size: 12.5px; font-weight: 700; color: #1a2e0c;
+  background: #9ee86f; border: 2px solid #1a0f08; box-shadow: 0 3px 8px rgba(0,0,0,.5);
+  animation: tap-hint 1s ease-in-out infinite; pointer-events: none; z-index: 2;
+}
+.hero-card-row.voted { animation: hero-float 1.8s ease-in-out infinite; box-shadow: 0 0 0 2px #7fd34a, 0 0 18px rgba(127,211,74,.6); }
+/* L'animation de coup reçu (fx.js) reste prioritaire. */
+.hero-card-row.hit { animation: card-hit .45s ease-in-out; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-card-row.active, .hero-card-row.need-vote, .hero-card-row.voted, .hero-card-row.need-vote::after { animation: none; }
+}
+
+/* ---------- Liste des joueurs dans la colonne de droite (entre capacités du boss et chronique) ---------- */
+@media (min-width: 901px) { .game-grid { grid-template-columns: 1fr clamp(340px, 27vw, 420px); } }
+.side .hero-row { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 0; padding: 4px 2px 18px; }
+.side .hero-row .hero-card-row { max-width: none; flex: none; }
+.side .hero-row .row-arrow { align-self: center; transform: rotate(90deg); line-height: 1; font-size: 14px; opacity: .7; }
+@media (min-width: 901px) {
+  .game .side .abilities { max-height: 30%; }
+  .game .side .hero-row { flex: none; }
+  .game .side .log { flex: 1; min-height: 90px; }
+}
+
+/* ---------- Main sous le boss : cartes plus grandes ---------- */
+@media (min-width: 901px) {
+  .game .card.photo { width: 150px; }
+  .game .hand-zone { padding: 10px 12px; }
+  .game .hand { gap: 10px; }
+}
+
+/* Étape « Continuer » : ce qui s'est passé pendant la phase */
+.action-bar .step { display: flex; align-items: center; gap: 16px; width: 100%; }
+.action-bar .step ul { flex: 1; list-style: none; margin: 0; padding: 0; font-size: 14.5px; max-height: 120px; overflow: auto; }
+.action-bar .step li { padding: 2px 0; color: var(--text); }
+.action-bar .step li.k-dmg, .action-bar .step li.k-lose { color: #ff9d8f; }
+.action-bar .step li.k-poison { color: #b9f08a; }
+.action-bar .step li.k-heal, .action-bar .step li.k-protect { color: #a8e6a0; }
+.action-bar .step li.k-shield, .action-bar .step li.k-plan { color: #ffe08a; font-weight: 600; }
+.action-bar .step li.k-curse { color: #d6b8ff; }
+.action-bar .step li.k-quote { font-style: italic; color: var(--gold); }
+.action-bar .step li.k-tip { color: #bfe3ff; }
+.action-bar .step li[class*="k-ab-"] { color: #ffb3a7; font-weight: 600; }
+.action-bar .step .btn.go { flex: none; font-size: 18px; padding: 8px 18px; }
+.log li.k-tip { color: #2f5d8a; font-style: italic; }
+.log li.k-plan { font-weight: 600; }
+
+/* Malédiction prévue sur l'attaque, corbeau gardé ou prêt */
+.seat-attack .fx.curse { color: #c9a3ff; }
+.raven-tok { cursor: pointer; border: 1px solid #7fd34a; border-radius: 8px; background: rgba(0,0,0,.35); color: #d8f5c4; font: inherit; font-size: 12px; padding: 0 6px; }
+.raven-tok.kept { border-color: #b08a4a; color: #e8d3a6; }
+
+/* ---------- Combat sur ordinateur : l'image du boss va jusqu'en bas, la main se pose par-dessus ---------- */
+@media (min-width: 901px) {
+  .game .main { position: relative; }
+  .game .boss-banner { flex: 1; min-height: 0; }
+  /* Boucliers, tour et vie remontent pour ne pas être cachés par les cartes */
+  .game .screen-message { top: 20%; }
+  .game .crests { bottom: auto; top: 33%; }
+  .game .corner.bl, .game .corner.br { bottom: auto; top: 64px; }
+  .game .table-bottom {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    pointer-events: none;
+  }
+  .game .table-bottom .action-bar { pointer-events: auto; }
+  /* La main déborde vers le haut : seules les cartes et les objets captent les clics */
+  .game .table-bottom .hand-zone, .game .table-bottom .hand { pointer-events: none; }
+  .game .table-bottom .card, .game .table-bottom .items { pointer-events: auto; }
+  .game .table-bottom .action-bar { max-width: 94%; box-shadow: 0 8px 22px rgba(0,0,0,.6); }
+  .game .table-bottom .hand-zone {
+    position: relative; width: 100%; padding: 0; border: 0; border-radius: 0 0 16px 16px; overflow: visible;
+    background: linear-gradient(transparent, rgba(10,5,2,.55) 60%, rgba(10,5,2,.8));
+    display: flex; justify-content: center; align-items: flex-end; height: 268px; padding-bottom: 8px;
+  }
+  .game .table-bottom .hand { flex-wrap: nowrap; justify-content: center; align-items: flex-end; gap: 0; min-height: 0; padding: 0 92px 0 28px; }
+  .game .table-bottom .hand .muted { color: var(--muted); margin-bottom: 30px; }
+  /* Cartes tenues en main : grandes, en éventail, à moitié sorties du bas de l'écran */
+  .game .hand .card.photo {
+    width: 168px; margin: 0 -14px; flex: none;
+    transform-origin: 50% 130%;
+    transform: translateY(calc(-2% + var(--dy, 0px))) rotate(var(--rot, 0deg));
+    transition: transform .18s ease, box-shadow .18s, filter .18s;
+    box-shadow: -6px 6px 16px rgba(0,0,0,.6);
+  }
+  .game .hand .card.photo:hover, .game .hand .card.photo.clickable:hover {
+    transform: translateY(-12%) rotate(0deg) scale(1.4); z-index: 30;
+    box-shadow: 0 0 0 3px var(--gold), 0 22px 40px rgba(0,0,0,.75);
+  }
+  .game .hand .card.photo.selected { transform: translateY(calc(10% + var(--dy, 0px))) rotate(var(--rot, 0deg)); filter: brightness(.55) grayscale(.4); }
+  .game .hand .card.photo.selected:hover { transform: translateY(-14%) rotate(0deg) scale(1.45); filter: brightness(.7); }
+  .game .hand .card.photo.casting { transform: translateY(-10%) rotate(0deg) scale(1.3) !important; z-index: 25; }
+  .game .hand .card.photo.casting:hover { transform: translateY(-10%) rotate(0deg) scale(1.3) !important; }
+  /* Objets rangés à droite de la main */
+  .game .table-bottom .items { position: absolute; right: 12px; bottom: 12px; flex-direction: column; gap: 6px; margin: 0; }
+  .game .table-bottom .item.photo-item { width: 64px; }
+  .game .table-bottom .item.photo-item:hover:not(:disabled) { transform: translateX(-60%) scale(2.2); z-index: 30; }
+}
+
+/* ---------- Boss sans illustration : décor dessiné et grand emblème ---------- */
+.screen.art-dragon, .boss-thumb.art-dragon {
+  background: radial-gradient(circle at 70% 25%, #f6e7ff 0%, transparent 18%),
+              radial-gradient(ellipse at 50% 120%, #2a0f4d, transparent 60%),
+              linear-gradient(170deg, #4b5fd1 0%, #6a3fb5 45%, #1d1240 100%);
+}
+.screen.art-golem, .boss-thumb.art-golem {
+  background: radial-gradient(circle at 30% 20%, rgba(255,220,160,.55), transparent 30%),
+              radial-gradient(ellipse at 50% 120%, #3a2412, transparent 60%),
+              linear-gradient(170deg, #d49a5c 0%, #9a6235 50%, #3d2615 100%);
+}
+.screen.art-ogre, .boss-thumb.art-ogre {
+  background: radial-gradient(circle at 75% 20%, rgba(255,240,170,.5), transparent 25%),
+              radial-gradient(ellipse at 50% 120%, #1b2b10, transparent 60%),
+              linear-gradient(170deg, #7aa04a 0%, #4f6e2c 50%, #1d2a12 100%);
+}
+.screen[data-emblem]::before, .boss-thumb[data-emblem]::before {
+  content: attr(data-emblem); position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
+  font-size: min(42cqh, 260px); line-height: 1; opacity: .9; filter: drop-shadow(0 18px 30px rgba(0,0,0,.55));
+  pointer-events: none;
+}
+.screen[data-emblem] { container-type: size; }
+.boss-thumb[data-emblem]::before { font-size: 64px; top: 45%; }
+
+/* ---------- Jauges du boss (vol du Dragon, énergie du Golem, têtes de l'Ogre) ---------- */
+.gauges { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 2; flex-wrap: wrap; justify-content: center; max-width: 70%; }
+.gauge { min-width: 150px; padding: 3px 8px 5px; border-radius: 10px; background: rgba(15,8,3,.75); border: 1px solid rgba(233,185,73,.4); color: var(--text); font-size: 12px; }
+.gauge span { display: block; white-space: nowrap; }
+.gauge i { display: block; height: 7px; margin-top: 3px; border-radius: 4px; background: linear-gradient(90deg, var(--gold) var(--p), rgba(255,255,255,.12) var(--p)); }
+.gauge.g-land i { background: linear-gradient(90deg, #7fd3ff var(--p), rgba(255,255,255,.12) var(--p)); }
+.gauge.g-wrath i { background: linear-gradient(90deg, #ff6a4a var(--p), rgba(255,255,255,.12) var(--p)); }
+.gauge.g-energy i { background: linear-gradient(90deg, #b48cff var(--p), rgba(255,255,255,.12) var(--p)); }
+.gauge.g-down { opacity: .55; }
+@media (min-width: 901px) { .game .gauges { top: 62px; } }
+
+/* Boucliers à pointes (Dragon) */
+.crest.spiked .crest-shield { box-shadow: 0 0 0 3px #ff8a3d, 0 0 16px rgba(255,120,40,.8); }
+.crest.spiked .crest-shield::after { content: '✸'; position: absolute; top: -10px; right: -8px; color: #ff8a3d; font-size: 18px; text-shadow: 0 0 4px #000; }
+
+/* Jetons Panique et Paralysie */
+.tok.panic { color: #ffd36b; }
+.tok.paralysis { color: #9fd8ff; }
+.seat-attack .fx.panic { color: #ffd36b; }
+.seat-attack .fx.paralysis { color: #9fd8ff; }
+
+/* Objets sans photo */
+.item.emoji-item { width: 64px; aspect-ratio: 63 / 88; padding: 4px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; font-size: 10px; line-height: 1.1; }
+.item.emoji-item .big-emoji { font-size: 26px; }
+.item.emoji-item small { font-size: 11px; }
+.game .table-bottom .item.emoji-item:hover:not(:disabled) { transform: translateX(-60%) scale(1.8); z-index: 30; }
+
+/* Carte sans photo (butin pas encore photographié) */
+.card .card-fallback { display: none; }
+.card.noimg img { display: none; }
+.card.noimg .card-fallback {
+  display: flex; flex-direction: column; gap: 4px; height: 100%; padding: 10px 8px; box-sizing: border-box; text-align: center;
+  background: linear-gradient(#5a4128, #2a1c11); color: var(--text); border-radius: inherit; border: 2px solid #8a6a3d;
+  font-size: 11px; line-height: 1.2;
+}
+.card.noimg .card-fallback b { font-family: var(--title); font-size: 14px; color: var(--gold); margin-bottom: 4px; }
+.card.noimg .card-fallback p { margin: 0; }
+.card.noimg .card-fallback small { margin-top: auto; color: var(--gold); }
+
+/* Salon : 6 boss sur 3 colonnes compactes */
+.lobby-center .boss-pick { grid-template-columns: repeat(3, 112px); justify-content: center; gap: 10px; }
+.lobby-center .boss-pick .name-band { font-size: 14px; }
+@media (max-width: 900px) { .lobby-center .boss-pick { grid-template-columns: repeat(3, minmax(0, 92px)); gap: 6px; } }
+
+/* Choix du butin après un boss */
+.loot-modal { max-width: 940px; }
+.loot-modal .cards { justify-content: center; gap: 14px; margin-top: 10px; }
+.loot-modal .card.photo { width: 150px; }
+.loot-modal .cards { flex-wrap: nowrap; }
+@media (max-width: 900px) { .loot-modal .cards { flex-wrap: wrap; } .loot-modal .card.photo { width: 120px; } }
+.card.loot-taken { filter: grayscale(.9) brightness(.6); cursor: not-allowed; }
+.card.loot-taken::after { content: attr(data-taken); position: absolute; inset: 42% 0 auto; text-align: center; font-family: var(--title); font-size: 15px; color: #fff; background: rgba(0,0,0,.65); padding: 4px 0; }
+
+/* Sablier rouge : capacité « Épuisé » du tutoriel (M. Pantin perd de lui-même une partie de sa vie) */
+.ab-exhaust { background: #b0201a; color: #ffe0d8; box-shadow: 0 0 8px rgba(220,40,30,.7); }
+.ab-banner.ab-exhaust { background: linear-gradient(90deg, transparent, rgba(160,25,20,.94) 15%, rgba(160,25,20,.94) 85%, transparent); }
+.log li.k-ab-exhaust, .action-bar .step li.k-ab-exhaust { color: #ff6a5a; font-weight: 700; }
+
+/* ---------- Infobulles ---------- */
+#tip {
+  position: fixed; z-index: 100; max-width: 340px; padding: 8px 11px; border-radius: 10px; pointer-events: none;
+  background: linear-gradient(#2f2016, #1a110b); color: var(--text); border: 1px solid var(--gold);
+  box-shadow: 0 10px 26px rgba(0,0,0,.65); font-size: 13.5px; line-height: 1.35;
+  opacity: 0; transform: translateY(4px); transition: opacity .1s, transform .1s;
+}
+#tip.on { opacity: 1; transform: none; }
+#tip b { display: block; font-family: var(--title); font-size: 16px; color: var(--gold); font-weight: 600; }
+#tip div { margin-top: 4px; color: #e9dcc3; }
+#tip hr { border: 0; border-top: 1px solid rgba(233,185,73,.25); margin: 4px 0; }
+@media (hover: none) { #tip { display: none; } }

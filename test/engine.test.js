@@ -18,6 +18,16 @@ for (const deck of [...Object.values(HEROES), ...Object.values(CLASSES)]) {
   for (const id of [...deck.cards, ...deck.advanced]) assert.ok(CARDS[id], `carte inconnue : ${id}`);
 }
 
+// Valide les étapes affichées (« Continuer ») jusqu'à la phase d'actions ou de défausse.
+function skip(g) {
+  while (g.step && !g.result) {
+    if (g.tie) g.resolveTie('a', g.tie.candidates[0]);
+    else g.continueStep('a', g.step.id);
+  }
+  return g;
+}
+const mk = (...args) => skip(new Game(...args));
+
 function totalCards(h) {
   return h.hand.length + h.draw.length + h.discard.length + h.play.length + h.exiled.length + (h.raven ? 1 : 0);
 }
@@ -64,11 +74,19 @@ function botTurn(g) {
 function simulate(bossId, difficulty) {
   const g = new Game(players, bossId, difficulty);
   const counts = g.heroes.map(totalCards);
+  const stars = { dragon: 2, golem: 3, ogre: 4 }[bossId] || 0; // objets débloqués comme en campagne
+  g.items && Object.assign(g.items, { medbag: stars >= 2, waterskins: stars >= 3 ? g.heroes.length : 0 });
   let guard = 0;
   while (!g.result && guard++ < 3000) {
-    if (g.choice) {
+    if (g.tie) g.resolveTie('a', g.tie.candidates[0]);
+    else if (g.step) g.continueStep('a', g.step.id);
+    else if (g.choice) {
       const h = g.heroes[g.choice.hero];
-      g.choose(h.playerId, g.choice.allowTop ? TOP_OF_DRAW : g.choice.options[0].uid, []);
+      const me = g.choice.hero;
+      const card = CARDS[g.choice.options[0].id];
+      const other = g.attacks.findIndex((a, i) => i !== me && a.value > 0);
+      const targets = g.choice.from === 'reveal' ? card.effects.filter(needsTarget).map((e) => (e.t === 'redirect' ? other : me)) : [];
+      g.choose(h.playerId, g.choice.allowTop ? TOP_OF_DRAW : g.choice.options[0].uid, targets);
     } else if (g.phase === 'action' && g.awaitingStarter) g.chooseStarter('a', g.round % players.length);
     else if (g.phase === 'action') botTurn(g);
     else if (g.phase === 'discard') {
@@ -80,7 +98,7 @@ function simulate(bossId, difficulty) {
 
     // Invariants : aucune carte ne se perd, PV et boucliers dans les bornes.
     g.heroes.forEach((h, i) => {
-      const inChoice = g.choice && g.choice.hero === i && g.choice.from === 'mask' ? g.choice.options.length : 0;
+      const inChoice = g.choice && g.choice.hero === i && ['mask', 'reveal'].includes(g.choice.from) ? g.choice.options.length : 0;
       assert.strictEqual(totalCards(h) + inChoice, counts[i], `${h.name} a perdu ou gagné des cartes`);
       assert.ok(h.hp >= 0 && h.hp <= h.maxHp, `PV hors bornes pour ${h.name}`);
     });
@@ -93,7 +111,7 @@ function simulate(bossId, difficulty) {
 
 // ----- Règles de base -----
 {
-  const g = new Game(players, 'puppet', 'advanced');
+  const g = mk(players, 'puppet', 'advanced');
   assert.strictEqual(g.heroes[0].maxHp, 24, 'Nain + Guerrier = 14 + 10 PV (exemple du livret)');
   assert.strictEqual(g.heroes[0].handLimit, 6, 'Nain + Guerrier = 5 + 1 cartes (exemple du livret)');
   assert.strictEqual(totalCards(g.heroes[0]), 12, 'entraînement : 12 cartes de départ');
@@ -126,7 +144,7 @@ function simulate(bossId, difficulty) {
 
 // ----- Vote pour qui commence -----
 {
-  const g = new Game(players, 'puppet', 'advanced');
+  const g = mk(players, 'puppet', 'advanced');
   g.voteStarter('a', 1);
   assert.ok(g.awaitingStarter, 'on attend tous les votes');
   g.voteStarter('a', 2); // on peut changer d'avis
@@ -138,14 +156,14 @@ function simulate(bossId, difficulty) {
   // Égalité : tirage au sort entre les ex æquo uniquement
   const winners = new Set();
   for (let k = 0; k < 40; k++) {
-    const t = new Game(players, 'puppet', 'advanced');
+    const t = mk(players, 'puppet', 'advanced');
     t.voteStarter('a', 0); t.voteStarter('b', 1); t.voteStarter('c', 2);
     winners.add(t.current);
   }
   assert.ok(winners.size > 1, 'égalité parfaite : le tirage varie');
 
   // Un joueur déconnecté ne bloque pas le vote
-  const d = new Game(players, 'puppet', 'advanced');
+  const d = mk(players, 'puppet', 'advanced');
   d.voteStarter('a', 1, ['a', 'b']);
   d.voteStarter('b', 1, ['a', 'b']);
   assert.strictEqual(d.current, 1);
@@ -153,7 +171,7 @@ function simulate(bossId, difficulty) {
 
 // ----- Cartes spéciales -----
 {
-  const g = new Game(players, 'prince', 'advanced');
+  const g = mk(players, 'prince', 'advanced');
   assert.strictEqual(totalCards(g.heroes[0]), 20, 'après l’entraînement : 20 cartes');
   for (const h of g.heroes) h.hp = 50, h.maxHp = 50; // éviter une défaite pendant les tests
   g.boss.shields = { melee: 0, ranged: 0, magic: 0 };
@@ -230,6 +248,7 @@ function simulate(bossId, difficulty) {
   // Improvisation : le héros ciblé joue automatiquement les 2 cartes du dessus de sa pioche.
   const sam = g.heroes[2];
   const playBefore = sam.play.length + sam.exiled.length + (sam.raven ? 1 : 0);
+  sam.draw.push({ uid: 'impB', id: 'star_blade' }, { uid: 'impA', id: 'sunfire' });
   uid = give(g, 0, 'improvise');
   g.playCard('a', uid, [2]);
   assert.ok(sam.play.length + sam.exiled.length + (sam.raven ? 1 : 0) >= playBefore + 1);
@@ -254,7 +273,7 @@ function simulate(bossId, difficulty) {
 
 // ----- Le Prince : crachat empoisonné et poison sur le boss -----
 {
-  const g = new Game(players, 'prince', 'advanced');
+  const g = mk(players, 'prince', 'advanced');
   g.boss.shields = { melee: 0, ranged: 0, magic: 0 };
   let uid = give(g, 0, 'star_blade');
   g.playCard('a', uid);
@@ -270,12 +289,12 @@ function simulate(bossId, difficulty) {
 // ----- Campagne : butin, cartes retirées, Porte-bonheur -----
 {
   const withLoot = players.map((p, i) => (i === 0 ? { ...p, loot: ['blade_of_wind'], removed: ['tunnel_blaster'] } : p));
-  const g = new Game(withLoot, 'prince', 'advanced', { stars: 1 });
+  const g = mk(withLoot, 'prince', 'advanced', { stars: 1 });
   const all = [...g.heroes[0].hand, ...g.heroes[0].draw].map((c) => c.id);
   assert.strictEqual(all.length, 20, '20 cartes + 1 butin - 1 retirée');
   assert.ok(all.includes('blade_of_wind') && !all.includes('tunnel_blaster'));
   assert.ok(g.items.charm, 'Porte-bonheur débloqué après le Prince');
-  assert.strictEqual(new Game(players, 'prince', 'advanced').items.charm, false);
+  assert.strictEqual(mk(players, 'prince', 'advanced').items.charm, false);
 
   // Porte-bonheur : joue la carte du dessus, éclair ignoré
   g.voteStarter('a', 0); g.voteStarter('b', 0); g.voteStarter('c', 0);
@@ -288,7 +307,7 @@ function simulate(bossId, difficulty) {
 
 // ----- Masque de clairvoyance : cartes remises sous la pioche -----
 {
-  const g = new Game(players, 'prince', 'advanced');
+  const g = mk(players, 'prince', 'advanced');
   const tom = g.heroes[1];
   tom.draw.push({ uid: 'u3', id: 'star_blade' }, { uid: 'u2', id: 'sunfire' }, { uid: 'u1', id: 'fireball' });
   const uid = give(g, 1, 'mask_clairvoyance');
@@ -299,7 +318,7 @@ function simulate(bossId, difficulty) {
 
 // ----- Malédictions -----
 {
-  const g = new Game(players, 'huntress', 'advanced', { stars: 1 });
+  const g = mk(players, 'huntress', 'advanced', { stars: 1 });
   assert.strictEqual(g.curseDeck.length, 17);
   const lisa = g.heroes[0];
   g.curse(lisa);
@@ -328,7 +347,7 @@ function simulate(bossId, difficulty) {
 
 // ----- La Chasseuse d'âmes -----
 {
-  const g = new Game(players, 'huntress', 'advanced', { stars: 1 });
+  const g = mk(players, 'huntress', 'advanced', { stars: 1 });
   for (const h of g.heroes) { h.hp = 60; h.maxHp = 60; }
   const life1 = g.boss.maxLife;
   g.hitBossLife(g.boss.life);
@@ -339,7 +358,7 @@ function simulate(bossId, difficulty) {
   assert.strictEqual(g.result, 'win', 'la deuxième fois, elle est vaincue');
 
   // Drain de vie : elle se soigne quand son attaque blesse
-  const d = new Game(players, 'huntress', 'advanced', { stars: 1 });
+  const d = mk(players, 'huntress', 'advanced', { stars: 1 });
   d.boss.life = 10;
   d.attacks = d.heroes.map(() => ({ value: 2, effects: {} }));
   for (const h of d.heroes) { h.hp = 60; h.maxHp = 60; h.turnsLeft = 0; }
@@ -348,9 +367,109 @@ function simulate(bossId, difficulty) {
   assert.ok(d.boss.life > 10, 'Drain de vie');
 }
 
+// ----- Étapes « Continuer » (phases 1, 2, 4, 5 comme l'appli officielle) -----
+{
+  const g = new Game(players, 'puppet', 'advanced');
+  assert.strictEqual(g.step.kind, 'planning', 'le combat commence par la planification');
+  assert.ok(g.step && g.phase === 'planning');
+  g.continueStep('a', g.step.id + 99); // mauvais numéro (double clic) : ignoré
+  assert.strictEqual(g.step.kind, 'planning');
+  g.continueStep('a', g.step.id);
+  assert.strictEqual(g.step, null, "tour 1 de l'entraînement : pas de boucliers, on passe aux actions");
+  assert.ok(g.phase === 'action' && g.awaitingStarter);
+  // Fin des actions : attaque du boss puis états, chacun en attente de « Continuer ».
+  for (const h of g.heroes) { h.hp = 60; h.maxHp = 60; }
+  g.endActionPhase();
+  assert.strictEqual(g.step.kind, 'attack');
+  g.continueStep('b', g.step.id);
+  assert.strictEqual(g.step.kind, 'status');
+  g.continueStep('c', g.step.id);
+  assert.strictEqual(g.phase, 'discard');
+}
+
+// ----- M. Pantin : Poison dès le tour 2, rage à partir du tour qui suit l'enrage -----
+{
+  const g = mk(players, 'puppet', 'advanced');
+  assert.deepStrictEqual(g.attacks[0].effects, {}, 'tour 1 : pas de Poison');
+  g.round = 2;
+  assert.ok(g.def.planAttacks(g).every((a) => a.effects.poison === 2), 'tour 2 : 2 Poison par attaque (vidéo)');
+  g.round = 3; g.boss.enraged = true; g.boss.enrageAt = 3;
+  assert.ok(g.def.planAttacks(g).every((a) => a.value <= 6), 'premier tour enragé : pas encore de bonus de rage');
+}
+
+// ----- Remélange immédiat de la défausse (livret p.8), sans les cartes jouées -----
+{
+  const g = mk(players, 'prince', 'advanced');
+  const h = g.heroes[0];
+  const all = [...h.draw, ...h.hand];
+  h.hand = []; h.play = [all[0]]; h.draw = [all[1]]; h.discard = all.slice(2, 6);
+  g.drawCards(h, 1);
+  assert.strictEqual(h.discard.length, 0, 'pioche vide : la défausse est remélangée tout de suite');
+  assert.strictEqual(h.draw.length, 4);
+  assert.deepStrictEqual(h.play, [all[0]], 'les cartes de la zone de jeu ne sont pas remélangées');
+}
+
+// ----- Anti-Boss-3000 : empêche n'importe quelle capacité (ici le Crachat empoisonné) -----
+{
+  const g = mk(players, 'prince', 'advanced');
+  g.boss.shields = { melee: 0, ranged: 0, magic: 0 };
+  g.boss.antiBoss = 1;
+  const uid = give(g, 0, 'rock_cleaver');
+  g.playCard('a', uid);
+  assert.strictEqual(g.heroes[0].poison, 0, 'réaction empêchée');
+  assert.strictEqual(g.boss.antiBoss, 0);
+}
+
+// ----- Malédiction du corbeau : le joueur peut la garder -----
+{
+  const g = mk(players, 'prince', 'advanced');
+  const sam = g.heroes[2];
+  sam.raven = { uid: 'rv', id: 'curse_raven' };
+  g.setRavenKeep('c', true);
+  assert.strictEqual(g.wards(sam), false, 'gardée : elle ne se déclenche pas');
+  g.setRavenKeep('c', false);
+  assert.strictEqual(g.wards(sam), true);
+}
+
+// ----- Égalité pour « le héros qui a le plus de PV » : les joueurs choisissent (livret p.9) -----
+{
+  const g = mk(players, 'prince', 'advanced');
+  for (const h of g.heroes) { h.hp = 20; h.maxHp = 30; h.poison = 0; }
+  g.round = 1;
+  g.def.onStatus(g);
+  assert.ok(g.tie, 'égalité : choix en attente');
+  assert.throws(() => g.resolveTie('a', 5), /ex æquo/);
+  g.resolveTie('a', 1);
+  assert.ok(g.heroes[1].hp < 20 && g.heroes[1].poison === 1, 'Coup de langue sur le héros choisi');
+  assert.strictEqual(g.heroes[0].hp, 20);
+}
+
+// ----- Chasseuse : Drain de vie une seule fois par attaque -----
+{
+  const g = mk(players, 'huntress', 'advanced', { stars: 1 });
+  for (const h of g.heroes) { h.hp = 60; h.maxHp = 60; }
+  g.boss.life = 10;
+  g.attacks = g.heroes.map(() => ({ value: 2, effects: {} }));
+  g.endActionPhase();
+  assert.strictEqual(g.boss.life, 13, '3 héros blessés : elle ne se soigne que de 3 (Avancé)');
+}
+
+// ----- Carte révélée qui demande une cible (Porte-bonheur) : le joueur choisit -----
+{
+  const g = mk(players, 'prince', 'advanced', { stars: 1 });
+  g.voteStarter('a', 0); g.voteStarter('b', 0); g.voteStarter('c', 0);
+  g.attacks = [{ value: 5, effects: {} }, { value: 6, effects: {} }, { value: 4, effects: {} }];
+  g.heroes[0].draw.push({ uid: 'pz', id: 'chest_piece' });
+  g.useItem('a', 'charm');
+  assert.ok(g.choice && g.choice.from === 'reveal', 'Plastron révélé : choix de la cible');
+  g.choose('a', 'pz', [1]);
+  assert.strictEqual(g.attacks[1].value, 2, 'Protection 4 sur le héros choisi');
+  assert.strictEqual(g.choice, null);
+}
+
 // ----- Simulations complètes -----
 const tally = {};
-for (const boss of ['puppet', 'prince', 'huntress']) {
+for (const boss of ['puppet', 'prince', 'huntress', 'dragon', 'golem', 'ogre']) {
   for (const diff of ['beginner', 'advanced', 'pro', 'insane']) {
     let wins = 0;
     let rounds = 0;

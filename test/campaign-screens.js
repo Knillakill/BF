@@ -1,5 +1,5 @@
 // Captures de la campagne : salon après le Prince (butin ★1) et combat contre la Chasseuse d'âmes.
-// Lancer : node test/campaign-screens.js [dossier]   (le serveur doit tourner sur le port 3000)
+// Lancer : node test/campaign-screens.js [dossier]   (le serveur doit tourner sur le port 3000 avec BF_DEV=1)
 
 const path = require('path');
 const fs = require('fs');
@@ -36,16 +36,17 @@ const click = (p, sel) => p.evaluate((s) => document.querySelector(s)?.click(), 
   await b.waitForSelector('.seat-slot');
 
   const sit = async (p, seat, hero, cls) => {
-    await click(p, `[data-action="seat"][data-seat="${seat}"]`); await wait(300);
     await click(p, `[data-kind="hero"][data-id="${hero}"]`); await wait(300);
     await click(p, `[data-kind="cls"][data-id="${cls}"]`); await wait(300);
-    await click(p, '[data-action="sit"]'); await wait(400);
+    await click(p, '[data-action="close-modal"]'); await wait(400);
+    if (seat !== undefined) { await p.evaluate((s) => document.querySelector(`[data-action="seat"][data-seat="${s}"]`)?.click(), seat); await wait(300); }
   };
   await sit(a, 0, 'dwarf', 'warrior');
   await sit(b, 4, 'elf', 'rogue');
 
   // Campagne : le Prince est vaincu (★1), on choisit la Chasseuse d'âmes et un butin.
-  await a.select('select[data-action="campaign"]', '2'); await wait(400);
+  // Progression forcée (Prince vaincu) : nécessite BF_DEV=1 côté serveur.
+  await a.evaluate(() => socket.emit('settings', { beaten: 2 })); await wait(400);
   await click(a, '[data-action="boss"][data-id="huntress"]'); await wait(400);
   await click(a, '[data-action="loot"][data-id="blade_of_wind"]'); await wait(400);
   await click(a, '[data-action="remove-card"][data-id="tunnel_blaster"]'); await wait(500);
@@ -53,6 +54,8 @@ const click = (p, sel) => p.evaluate((s) => document.querySelector(s)?.click(), 
 
   await click(a, '[data-action="start"]');
   await a.waitForSelector('.crests');
+  // Phases 1 et 2 affichées au centre : on clique « Continuer » jusqu'au vote.
+  for (let k = 0; k < 3 && await a.$('[data-action="continue"]'); k++) { await a.click('[data-action="continue"]'); await wait(400); }
   for (const p of pages) await click(p, '[data-action="vote"][data-idx="0"]');
   await wait(800);
   await a.screenshot({ path: path.join(OUT, 'campagne-chasseuse.png') });
