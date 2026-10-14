@@ -134,8 +134,11 @@ const prince = {
       'Le Prince crache du poison quand une Attaque ou un Soutien inflige trop de dégâts (force 4 ou plus).')) {
       if (!g.wards(hero)) g.addPoison(hero, 1);
     }
-    if (g.boss.toxic === dmgType && result.shield > 0 &&
-        g.ability('shield', 'Bouclier venimeux', 'Toucher le bouclier venimeux (☠️) du Prince empoisonne.')) {
+  },
+  // Effet de bouclier : il se déclenche quand le bouclier est BRISÉ (pas quand il est simplement touché).
+  onShieldBroken(g, hero, dmgType) {
+    if (g.boss.toxic === dmgType &&
+        g.ability('shield', 'Bouclier venimeux', 'Briser le bouclier venimeux (☠️) du Prince empoisonne celui qui le brise.')) {
       if (!g.wards(hero)) g.addPoison(hero, 1);
     }
   },
@@ -179,7 +182,7 @@ const prince = {
 //   Deux phases : PV 21 (2 héros, niv. 1), 23→~32 (2 héros, niv. 3), 38→55 (3 héros), 47→63 (3 héros, niv. 4).
 //   Enragée au tour 5. Attaques 3 à 6 par héros, avec malédiction et/ou poison en effet additionnel.
 //   Drain de vie : elle se soigne de 2/3/4 PV quand son attaque blesse (une fois par phase d'attaque).
-//   Bouclier maudit : le héros qui touche ce bouclier reçoit une malédiction.
+//   Bouclier maudit : le héros qui brise ce bouclier reçoit une malédiction.
 //   Chasse aux âmes (tours impairs) : le héros qui a le plus de PV perd 3/4/7 PV et reçoit une malédiction.
 //   Cauchemar (tours pairs) : chaque héros perd 6 PV puis défausse 2 cartes de sa pioche (4 au tour 4).
 //   Résurrection : à 0 PV, elle se relève avec ses PV de phase 2 et chaque héros reçoit une malédiction.
@@ -226,9 +229,10 @@ const huntress = {
     g.boss.cursedShields = types.filter((t) => t !== safe);
     return { melee: rnd(1, 3) + up, ranged: rnd(2, 4) + up, magic: rnd(1, 3) + up };
   },
-  onHit(g, hero, dmgType, result) {
-    if (g.boss.cursedShields.includes(dmgType) && result.shield > 0 &&
-        g.ability('shield', 'Bouclier maudit', 'Le héros qui touche un bouclier marqué d’un crâne violet reçoit une malédiction.')) {
+  // Effet de bouclier : il se déclenche quand le bouclier est BRISÉ.
+  onShieldBroken(g, hero, dmgType) {
+    if (g.boss.cursedShields.includes(dmgType) &&
+        g.ability('shield', 'Bouclier maudit', 'Le héros qui brise un bouclier marqué d’un crâne violet reçoit une malédiction.')) {
       if (!g.wards(hero)) g.curse(hero, 'bouclier maudit');
     }
   },
@@ -287,7 +291,7 @@ const byDiff = (g, table) => table[g.difficulty] ?? table.advanced;
 //   À 20 PV ou moins, il est trop blessé pour voler et reste au sol.
 //   Battement d'ailes (⌛, en vol) : chaque héros perd 1 PV par carte en main.
 //   Cri perçant (⌛) : le héros qui a le plus de PV perd 4 PV (5 enragé) et reçoit 1 Panique.
-//   Boucliers à pointes : toucher ce bouclier blesse l'attaquant (4, 5 au niveau 3).
+//   Boucliers à pointes : briser ce bouclier blesse l'attaquant (4, 5 au niveau 3).
 //   Attaques : 6 à 9 avec 1-2 Panique en vol, plus faibles au sol.
 const dragon = {
   name: "Le Dragon de l'éther",
@@ -348,11 +352,14 @@ const dragon = {
     if (dmgType === 'melee' && g.boss.flags.flying) return 'Le Dragon de l’éther est en vol : la mêlée ne peut pas l’atteindre.';
     return null;
   },
-  onHit(g, hero, dmgType, result, isAttack, strength) {
-    if (g.boss.spiked.includes(dmgType) && result.shield > 0 &&
-        g.ability('shield', 'Boucliers à pointes', 'Toucher un bouclier à pointes blesse l’attaquant.')) {
+  // Effet de bouclier : briser un bouclier à pointes blesse celui qui le brise.
+  onShieldBroken(g, hero, dmgType) {
+    if (g.boss.spiked.includes(dmgType) &&
+        g.ability('shield', 'Boucliers à pointes', 'Briser un bouclier à pointes blesse celui qui le brise.')) {
       if (!g.wards(hero)) g.hurtHero(hero, byDiff(g, { beginner: 3, advanced: 4, pro: 5, insane: 6 }), 'Boucliers à pointes');
     }
+  },
+  onHit(g, hero, dmgType, result, isAttack, strength) {
     if (g.result || !g.boss.flags.flying) return;
     g.boss.flags.land += strength;
     if (g.boss.flags.land >= g.boss.flags.landMax) this.land(g);

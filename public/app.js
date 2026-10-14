@@ -257,12 +257,33 @@ function renderLobby() {
   };
   const missingLevels = lootLevels.filter((lvl) => !myLoot.some((id) => catalog.cards[id].loot === lvl));
   // Récompense : après un boss vaincu, chacun choisit UNE carte parmi celles proposées, ajoutée à son paquet.
+  // Écran de récompense : on sélectionne une carte puis on confirme.
+  const lvl = missingLevels[0];
+  const offer = Object.values(catalog.cards).filter((c) => c.loot === lvl);
+  if (ui.lootPick && (catalog.cards[ui.lootPick].loot !== lvl || takenBy(ui.lootPick))) ui.lootPick = null;
+  const stillChoosing = state.players.filter((p) => p.id !== token && p.hero && p.cls
+    && !(p.loot || []).some((id) => catalog.cards[id].loot === lvl)).map((p) => esc(p.name));
+  const rewardCard = (c) => {
+    const other = takenBy(c.id);
+    const picked = ui.lootPick === c.id;
+    return `<div class="reward ${other ? 'taken' : ''} ${picked ? 'picked' : ''}" ${other ? '' : `data-action="loot-pick" data-id="${c.id}"`}>
+        ${cardHtml(c.id)}
+        <span class="reward-name">${esc(c.name)}</span>
+        <span class="reward-text">${c.text.map((t) => esc(plain(t))).join('<br>')}</span>
+        ${other ? `<span class="reward-flag">Pris par ${esc(other.name)}</span>` : picked ? '<span class="reward-check">✔</span>' : ''}
+      </div>`;
+  };
   const lootModal = me.hero && me.cls && missingLevels.length ? `
-    <div class="modal-back">
-      <div class="modal parchment loot-modal">
-        <h2>Butin ★${missingLevels[0]} : choisis ta récompense</h2>
-        <p class="hint">Choisis <b>une seule</b> carte : elle rejoint ton paquet et sera jouable dès le prochain boss. Chaque carte n'existe qu'en un exemplaire.</p>
-        <div class="cards">${Object.values(catalog.cards).filter((c) => c.loot === missingLevels[0]).map(lootCard).join('')}</div>
+    <div class="reward-back">
+      <div class="reward-screen">
+        <p class="reward-kicker">${'★'.repeat(lvl)} Butin de niveau ${lvl}</p>
+        <h2 class="reward-title">Choisis ta récompense</h2>
+        <p class="reward-sub">Une seule carte rejoint ton paquet et sera jouable dès le prochain boss. Chaque carte n'existe qu'en un exemplaire.</p>
+        <div class="reward-row">${offer.map(rewardCard).join('')}</div>
+        <div class="reward-actions">
+          <button class="btn go big" data-action="loot-confirm" ${ui.lootPick ? '' : 'disabled'}>${ui.lootPick ? `Ajouter « ${esc(catalog.cards[ui.lootPick].name)} » à mon paquet` : 'Sélectionne une carte'}</button>
+          ${stillChoosing.length ? `<span class="reward-wait">En train de choisir : ${stillChoosing.join(', ')}</span>` : ''}
+        </div>
       </div>
     </div>` : '';
   const lootBlock = !starterOnly && state.stars > 0 ? `
@@ -534,9 +555,9 @@ function renderGame() {
   const shieldTip = (t) => [
     `Bouclier ${DMG_NAME[t]} : ${b.shields[t]}${b.shields[t] ? '' : ' (aucun ou détruit)'}`,
     b.shields[t] ? `Les dégâts ${CARD_KIND[t]} touchent d'abord ce bouclier ; l'excédent va dans la vie du boss.` : `Pas de bouclier : les dégâts ${CARD_KIND[t]} vont directement dans la vie du boss jusqu'à la fin du tour.`,
-    b.toxic === t ? '☠️ Venimeux : le toucher donne 1 Poison.' : '',
-    (b.cursedShields || []).includes(t) ? '💀 Maudit : le toucher donne une malédiction.' : '',
-    (b.spiked || []).includes(t) ? '✸ À pointes : le toucher blesse l’attaquant.' : '',
+    b.toxic === t ? '☠️ Venimeux : celui qui le brise reçoit 1 Poison.' : '',
+    (b.cursedShields || []).includes(t) ? '💀 Maudit : celui qui le brise reçoit une malédiction.' : '',
+    (b.spiked || []).includes(t) ? '✸ À pointes : celui qui le brise est blessé.' : '',
     g.typesThisRound.includes(t) ? `✔ Une Attaque ${CARD_KIND[t]} a été jouée ce tour : les Soutiens ${CARD_KIND[t]} fonctionnent.` : `✘ Aucune Attaque ${CARD_KIND[t]} ce tour : les Soutiens ${CARD_KIND[t]} ne font rien.`,
     'Les boucliers sont renouvelés à chaque phase 2.',
   ].filter(Boolean).join('\n');
@@ -703,6 +724,16 @@ document.addEventListener('click', (ev) => {
       const others = (me.loot || []).filter((id) => catalog.cards[id].loot !== card.loot);
       const loot = (me.loot || []).includes(card.id) ? others : [...others, card.id];
       socket.emit('loadout', { loot, removed: (me.removed || []).slice(0, loot.length) });
+      break;
+    }
+    case 'loot-pick': ui.lootPick = el.dataset.id; render(); break;
+    case 'loot-confirm': {
+      if (!ui.lootPick) break;
+      const me = state.players.find((p) => p.id === token);
+      const card = catalog.cards[ui.lootPick];
+      const loot = [...(me.loot || []).filter((id) => catalog.cards[id].loot !== card.loot), card.id];
+      socket.emit('loadout', { loot, removed: (me.removed || []).slice(0, loot.length) });
+      ui.lootPick = null;
       break;
     }
     case 'remove-card': {
